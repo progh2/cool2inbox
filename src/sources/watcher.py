@@ -47,7 +47,7 @@ class Watcher(QObject):
         """설정이 바뀌면 호출한다. 재시작 없이 주기·일시정지가 반영된다 (FR-6.6)."""
         if config is not None:
             self.config = config
-            self.importer.config = config
+            self.importer.apply_config(config)
         s = self.config.schedule
         if s.paused or not self.config.is_configured():
             self._timer.stop()

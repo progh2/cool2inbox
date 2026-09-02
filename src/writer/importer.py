@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from src.sources.attachments import AttachmentFinder
 from src.writer import naming
 from src.writer.inbox import InboxError, InboxWriter
 from src.writer.markdown import AttachmentLink, RenderOptions, render
@@ -77,12 +78,28 @@ class NullAttachmentFinder:
         return [(a, None) for a in message.attachments]
 
 
+def _finder_for(config):
+    """수신 파일 폴더가 지정돼 있으면 실제 탐색기, 아니면 이름만 기록하는 기본 구현."""
+    d = (config.coolm.recv_file_dir or "").strip()
+    if not d:
+        return NullAttachmentFinder()
+    return AttachmentFinder(d, config.coolm.attach_match_minutes)
+
+
 class Importer:
     def __init__(self, config, state, finder=None, writer: InboxWriter | None = None):
         self.config = config
         self.state = state
-        self.finder = finder if finder is not None else NullAttachmentFinder()
+        self._explicit_finder = finder
+        self.finder = finder if finder is not None else _finder_for(config)
         self.writer = writer if writer is not None else InboxWriter(config.inbox)
+
+    def apply_config(self, config) -> None:
+        """설정이 바뀌면 호출한다. 수신 파일 폴더가 바뀌면 탐색기도 새로 만든다 (FR-6.6)."""
+        self.config = config
+        self.writer.settings = config.inbox
+        if self._explicit_finder is None:
+            self.finder = _finder_for(config)
 
     # ---- 한 건
 
