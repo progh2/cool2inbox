@@ -30,9 +30,9 @@ def test_기본값():
     assert c.ui.first_run_done is False
 
 
-def test_설정_디렉터리는_환경변수를_따른다(isolated_config_dir):
-    assert config_dir() == isolated_config_dir
-    assert config_path() == isolated_config_dir / "config.json"
+def test_설정_디렉터리는_환경변수를_따른다(isolated_dirs):
+    assert config_dir() == isolated_dirs
+    assert config_path() == isolated_dirs / "config.json"
 
 
 # ---------------------------------------------------------------- 왕복

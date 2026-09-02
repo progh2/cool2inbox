@@ -115,6 +115,15 @@ python main.py          # 실행
 pytest                  # 테스트
 ```
 
+리눅스에서 Qt GUI 를 띄우려면 시스템 라이브러리가 필요합니다 (헤드리스 서버·컨테이너에서 자주 빠져 있습니다).
+
+```bash
+sudo apt install libxkbcommon0 libegl1 libgl1        # Debian/Ubuntu
+export QT_QPA_PLATFORM=offscreen                     # 화면 없는 환경에서 테스트할 때
+```
+
+없어도 GUI 를 쓰지 않는 테스트는 전부 돌아갑니다 — `qapp` 픽스처가 알아서 건너뜁니다.
+
 개발 규칙, 진행 상황, 결정 기록은 [`CLAUDE.md`](CLAUDE.md) 와 [`docs/PRD.md`](docs/PRD.md) 에 있습니다.
 작업은 **이슈 단위**로 하고 커밋 메시지에 `(closes #N)` 을 붙입니다.
 
