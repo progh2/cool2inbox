@@ -37,3 +37,6 @@ Thumbs.db
 desktop.ini
 .idea/
 .vscode/
+
+# 사용자가 분석용으로 넣어둔 실제 쿨메신저 데이터 (분석 후 삭제)
+CoolMessenger Files/
