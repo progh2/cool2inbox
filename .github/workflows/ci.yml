@@ -36,6 +36,8 @@ jobs:
     runs-on: windows-latest
     # Windows 콘솔은 기본이 cp1252 라 한글 출력·파일 읽기에서 인코딩 오류가 난다.
     # UTF-8 모드를 켜서 파이썬 전반을 UTF-8 로 통일한다 (Python 3.7+).
+    permissions:
+      contents: write        # 릴리스 생성·자산 첨부에 필요
     env:
       PYTHONUTF8: "1"
       PYTHONIOENCODING: "utf-8"
