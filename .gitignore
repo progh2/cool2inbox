@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 빌드 산출물
+build/
+dist/
+*.spec.bak
+
+# 로컬 설정/상태 (실제 저장 위치는 platformdirs, 여기는 안전장치)
+config.json
+state.sqlite3
+*.log
+
+# 쿨메신저 원본/샘플 — 개인정보가 들어 있으므로 절대 커밋 금지
+*.udb
+*.udb-wal
+*.udb-shm
+tests/_data/real/
+schema_dump*.txt
+
+# 마스코트 원본 이미지 (고해상도) — 배포용은 tools/prepare_penguin.py 로 assets/penguin/ 에 생성
+assets/penguin-src/
+
+# 테스트 임시 파일
+tests/_tmp/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/

@@ -1,0 +1,11 @@
+# GUI
+PySide6>=6.7
+
+# 설정 저장 위치 (OS별 사용자 설정 디렉터리)
+platformdirs>=4.0
+
+# 아이콘·마스코트 이미지 가공 (tools/)
+Pillow>=10.0
+
+# 테스트
+pytest>=8.0
