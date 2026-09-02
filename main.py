@@ -23,7 +23,7 @@ def main(argv: list[str] | None = None) -> int:
 
     log = logging.getLogger("cool2inbox")
 
-    app = QApplication(argv if argv is not None else sys.argv)
+    app = QApplication.instance() or QApplication(argv if argv is not None else sys.argv)
     app.setApplicationName("cool2inbox")
     app.setQuitOnLastWindowClosed(False)     # 창을 닫아도 트레이에 남는다
 
