@@ -46,7 +46,7 @@ jobs:
         shell: bash
         run: |
           TAG="${GITHUB_REF_NAME#v}"
-          VER=$(python -c "import re,pathlib; print(re.search(r'__version__ = \"([^\"]+)\"', pathlib.Path('src/__init__.py').read_text()).group(1))")
+          VER=$(python -c "import re,pathlib; print(re.search(r'__version__ = \"([^\"]+)\"', pathlib.Path('src/__init__.py').read_text(encoding='utf-8')).group(1))")
           echo "태그 $TAG / 소스 $VER"
           if [ "$TAG" != "$VER" ]; then
             echo "::error::태그(v$TAG)와 src/__init__.py 의 버전($VER)이 다릅니다."
