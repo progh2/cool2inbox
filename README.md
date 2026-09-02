@@ -4,7 +4,17 @@
 > 쪽지 1건 = 마크다운 파일 1개. 첨부파일까지 통째로.
 
 <p align="center">
-  <em>(마스코트 이미지 자리 — 가방 멘 펭귄 배달부)</em>
+  <img src="assets/penguin/idle.png" width="140" alt="cool2inbox 마스코트 — 가방 멘 펭귄 배달부">
+</p>
+
+<p align="center">
+  <img src="assets/penguin/idle.png" width="56" alt="대기">
+  <img src="assets/penguin/working.png" width="56" alt="배달 중">
+  <img src="assets/penguin/paused.png" width="56" alt="일시정지">
+  <img src="assets/penguin/error.png" width="56" alt="오류">
+  <img src="assets/penguin/setup.png" width="56" alt="설정 필요">
+  <br>
+  <sub>대기 · 배달 중 · 일시정지 · 오류 · 설정 필요</sub>
 </p>
 
 > **현재 상태: 개발 중 (v0.5).** 쪽지를 읽어 마크다운으로 저장하는 핵심 기능은 동작합니다.

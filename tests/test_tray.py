@@ -124,3 +124,36 @@ def test_트레이는_스스로_아무_일도_하지_않는다(tray, monkeypatch
     for a in tray.contextMenu().actions():
         if a.isEnabled() and a.text():
             a.trigger()
+
+
+# ---------------------------------------------------------------- 마스코트 자산 (#21)
+
+def test_아이콘은_모두_256px_투명배경():
+    from PIL import Image
+
+    for st in AppState:
+        im = Image.open(assets_dir() / "penguin" / f"{st.value}.png")
+        assert im.size == (256, 256), st
+        assert im.mode == "RGBA", st
+        lo, hi = im.getchannel("A").getextrema()
+        assert lo == 0 and hi == 255, f"{st}: 투명 영역과 불투명 영역이 모두 있어야 한다"
+
+
+def test_상태별로_그림이_다르다():
+    """작은 크기에서 상태를 구분할 수 있어야 한다 — 배지 색이 서로 달라야 한다."""
+    from PIL import Image
+
+    thumbs = {}
+    for st in AppState:
+        im = Image.open(assets_dir() / "penguin" / f"{st.value}.png").resize((16, 16))
+        thumbs[st] = im.tobytes()
+    assert len(set(thumbs.values())) == len(AppState)
+
+
+def test_앱_아이콘이_있고_ico는_여러_크기():
+    from PIL import Image
+
+    assert (assets_dir() / "icon.png").exists()
+    ico = Image.open(assets_dir() / "icon.ico")
+    sizes = set(ico.ico.sizes())
+    assert {(16, 16), (32, 32), (48, 48), (256, 256)} <= sizes
