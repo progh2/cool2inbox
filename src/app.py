@@ -20,6 +20,7 @@ from src.writer.backfill import Backfill
 from src.ui.log_dialog import LogDialog
 from src.ui.progress_dialog import BackfillProgressDialog
 from src.ui.settings_dialog import SettingsDialog
+from src.ui.setup_wizard import ALL, FUTURE_ONLY, RECENT, SetupWizard
 from src.ui.tray import AppState, Tray
 
 log = logging.getLogger(__name__)
@@ -41,6 +42,7 @@ class AppController(QObject):
         self.watcher = watcher if watcher is not None else Watcher(self.config, self.state, parent=self)
         self.instance_server = None          # main 이 넣어 준다 (종료할 때 닫는다)
         self._settings = None                # 열려 있는 설정 창
+        self._wizard = None                  # 열려 있는 첫 실행 마법사
         self._logs = None                    # 열려 있는 로그 창
         self._backfill = None                # 돌고 있는 백필
         self._progress = None
@@ -66,15 +68,66 @@ class AppController(QObject):
         w.poll_error.connect(self.on_poll_error)
 
     def prompt_setup_if_needed(self) -> bool:
-        """설정이 없으면 설정 창을 띄운다 (FR-7.1).
-
-        정식 첫 실행 마법사는 #17 에서 이 자리를 대신한다. 그때까지는 설정 창으로 안내한다.
-        """
+        """설정이 없으면 첫 실행 마법사를 띄운다 (FR-7.1)."""
         if self.config.is_configured():
             return False
-        log.info("설정이 없어 설정 창을 엽니다.")
-        self.open_settings()
+        log.info("설정이 없어 첫 실행 마법사를 엽니다.")
+        self.open_wizard()
         return True
+
+    def open_wizard(self) -> SetupWizard:
+        """첫 실행 마법사. 취소해도 프로그램은 트레이에 남는다 (FR-7.4)."""
+        if self._wizard is not None and self._wizard.isVisible():
+            self._wizard.raise_()
+            return self._wizard
+        self._wizard = SetupWizard(self.config)
+        self._wizard.completed.connect(self.on_wizard_completed)
+        self._wizard.rejected.connect(self.on_wizard_cancelled)
+        self._wizard.show()
+        return self._wizard
+
+    def on_wizard_cancelled(self) -> None:
+        """'나중에 하기' — 끄지 않고 일시정지 상태로 남긴다."""
+        if self.config.is_configured():
+            return
+        log.info("마법사를 취소했습니다. 설정 전까지 대기합니다.")
+        self.tray.set_state(AppState.SETUP, "폴더를 지정해 주세요")
+        self.tray.notify("cool2inbox",
+                         "트레이 아이콘에서 설정을 열어 폴더를 지정하면 시작합니다.")
+
+    def on_wizard_completed(self, config, past_choice: str, recent_count: int) -> None:
+        """마법사 완료 — 설정 저장 후 과거 쪽지 처리 방식을 적용한다 (FR-7.3)."""
+        self.config = config
+        try:
+            config.coolm.last_message_key = self._start_key(past_choice, recent_count)
+        except CoolmError as e:
+            log.warning("시작 지점을 정하지 못했습니다: %s", e)
+            self.tray.notify("cool2inbox", str(e), error=True)
+        self._save()
+        try:
+            autostart.set_enabled(config.schedule.autostart)
+        except autostart.AutostartError as e:
+            log.warning("자동 실행 설정 실패: %s", e)
+        self.watcher.apply_config(config)
+        self.refresh_state()
+        log.info("마법사 완료 — 과거 쪽지 처리: %s", past_choice)
+
+        if past_choice == ALL:
+            self.start_backfill()
+        else:
+            self.watcher.poll_now()
+
+    def _start_key(self, past_choice: str, recent_count: int) -> int:
+        """어느 쪽지부터 가져올지 결정한다. 반환값은 '여기까지는 처리한 것으로 친다' 는 키."""
+        if past_choice == ALL:
+            return 0
+        from src.sources.coolm import CoolmReader
+
+        with CoolmReader(self.watcher.memo_dir()) as r:
+            if past_choice == FUTURE_ONLY:
+                return r.latest_key()
+            keys = r.all_keys()                      # RECENT — 최근 N건을 남겨 둔다
+            return keys[-(recent_count + 1)] if len(keys) > recent_count else 0
 
     def refresh_state(self) -> None:
         """설정과 일시정지 여부에 맞춰 아이콘·메뉴를 정한다. 설정 미완료가 최우선이다."""

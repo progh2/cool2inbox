@@ -173,12 +173,12 @@ def test_오류는_알림을_꺼도_알린다(ctl, monkeypatch):
     assert ctl.tray.state is AppState.ERROR
 
 
-def test_설정이_없으면_설정_창을_띄운다(qapp, monkeypatch):
+def test_설정이_없으면_마법사를_띄운다(qapp, monkeypatch):
     from src.config import Config
 
     ctl = AppController(qapp, config=Config())
     opened = []
-    monkeypatch.setattr(ctl, "open_settings", lambda: opened.append(1))
+    monkeypatch.setattr(ctl, "open_wizard", lambda: opened.append(1))
     assert ctl.prompt_setup_if_needed() is True
     assert opened == [1]
     ctl.tray.hide()
