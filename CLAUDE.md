@@ -22,9 +22,9 @@
 - [dacisosl/coolm-helper](https://github.com/dacisosl/coolm-helper) (MIT) — udb 접근 방식 원출처
 
 ## 컨텍스트 앵커
-- intent: **v0.1 골격 완료** (#2 설정 · #3 상태DB · #4 단일 인스턴스/자동실행 · #5 트레이+로깅). 테스트 106개.
-  다음은 v0.2 읽기(#7 udb 리더 → #8 Message 모델 → #9 가짜 udb 생성기).
-  R1·R2 는 실물 분석으로 해소 — PRD 4.1 에 실측 스키마 확정 (쪽지 1,076건)
+- intent: **v0.1~v0.4 완료** — 골격·읽기·쓰기·첨부. 테스트 324개. 실물 1,076건 e2e 검증 완료
+  (md 1,075개 생성·실패 0·재실행 중복 0·머리말 YAML 전부 유효·첨부 2건 정확 매칭).
+  다음은 v0.5 UI (#17 마법사 → #18 설정창 → #19 백필 → #20 알림/로그뷰어)
 - 확정 경로: 쪽지 DB `%LOCALAPPDATA%\CoolMessenger\Memo\<조직코드>_<계정ID>_LX.udb`,
   수신 파일 `%USERPROFILE%\Documents\CoolMessenger Files\Received Files\`(평평·원본 파일명)
 - 파싱 규칙: 수신자 `ReferenceList`=`|인원수|멤버키|…|` → `tbl_member` 조인(**실패 폴백 필수**, 20%+ 미해석) /
