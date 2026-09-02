@@ -64,11 +64,12 @@
 | FR-1.2 | **원본은 절대 쓰기 모드로 열지 않는다.** `.udb` + `-wal` + `-shm` 을 임시 폴더에 복사한 뒤 복사본을 `mode=ro` 로 연다. 사용 후 복사본 삭제 |
 | FR-1.3 | 폴더 자동 탐지 — `LOCALAPPDATA`/`APPDATA`/`PROGRAMDATA`/`USERPROFILE` 아래 관례 경로와 계정별 하위 폴더를 훑는다. 후보에 **`Documents\CoolMessenger Files\Memo`(공백 포함)** 와 `CustomData*` 의 형제 폴더를 반드시 포함한다. 실패 시 사용자가 직접 지정 |
 | FR-1.4 | **내용 기반 선택** — 파일명·폴더명으로 고르지 않는다. 후보 `.udb` 를 열어 **`tbl_recv` 를 가진 것**만 채택하고, 여럿이면 가장 최근 수정된 것을 쓴다. (설정 폴더에 `tbl_tabInfo` 짜리 동명 `.udb` 가 존재하므로 이름으로 고르면 잘못 잡는다 — [#6](../../issues/6) 실물 확인) |
-| FR-1.5 | 스키마 검증 — `tbl_recv` 와 필수 컬럼(`MessageKey`, `Sender`, `ReceiveDate`, `Title`, `MessageText`)이 없으면 "쿨메신저 버전이 바뀌었을 수 있다"는 안내로 중단. 선택 컬럼(`DeletedDate`, `IsUnRead`, 수신자·첨부 관련)은 **있으면 쓰고 없으면 건너뛴다** |
-| FR-1.6 | `DeletedDate` 가 있으면 삭제된 쪽지는 제외 |
+| FR-1.5 | 스키마 검증 — `tbl_recv` 와 필수 컬럼(`MessageKey`, `Sender`, `ReceiveDate`, `Title`, `MessageText`, `ReferenceList`, `FilePath`)이 없으면 "쿨메신저 버전이 바뀌었을 수 있다"는 안내로 중단. 선택 컬럼(`DeletedDate`, `IsUnRead`, `CCList`, `MessageBody`)은 **있으면 쓰고 없으면 건너뛴다** |
+| FR-1.6 | `DeletedDate` **컬럼은 확인한 DB에 없었다**(삭제 시 행 자체가 사라지는 것으로 보임). 컬럼이 있는 버전을 대비해 있으면 거르고, 없으면 그냥 진행한다 |
 | FR-1.7 | `ReceiveDate` 형식 `2026/07/16 17:04:52 (목)` → `datetime` 파싱. 실패한 행은 건너뛰고 로그에 남긴다 |
-| FR-1.8 | **수신자 목록·첨부파일 메타데이터의 실제 컬럼/테이블은 미확정** → `tools/dump_coolm_schema.py` 로 실기기에서 확인한 뒤 확정한다 (**리스크 R1**, 이슈 [#6](../../issues/6)) |
-| FR-1.9 | 보낸 쪽지(`tbl_send` 등)는 v1 범위 밖 |
+| FR-1.8 | 수신자 목록 = `ReferenceList`(+`CCList`) 를 `\|` 로 분해해 **멤버키 → `tbl_member.MemberName`** 으로 변환. 조인 실패 시 `#<멤버키>` 로 폴백 (**R1 해소**, [#6](../../issues/6)) |
+| FR-1.9 | 본문은 `MessageText`(평문)를 기본으로 쓴다. `MessageBody`(base64+zlib+UTF-16LE HTML)를 마크다운으로 변환하는 옵션은 v1 이후 검토 |
+| FR-1.10 | 보낸 쪽지(`tbl_send`, 509건 확인)는 v1 범위 밖 |
 
 ### FR-2 첨부파일
 
@@ -77,7 +78,7 @@
 | FR-2.1 | 쪽지에 딸린 **첨부파일명 목록**은 DB에서 읽어 md 머리말에 기록한다 |
 | FR-2.2 | 실제 파일 바이트는 쿨메신저 **수신 파일 저장 폴더**에서 인박스로 **복사**한다. 원본은 이동·삭제하지 않는다 |
 | FR-2.3 | 수신 파일 폴더 = **`%USERPROFILE%\Documents\CoolMessenger Files\Received Files\`** (실물 확인 완료). 하위 폴더 없이 **원본 파일명 그대로 평평하게** 쌓인다. 자동 탐지 후 설정에서 변경 가능 |
-| FR-2.4 | 매칭 전략 (우선순위): ① DB에 저장 경로가 있으면 그대로 → ② 파일명 완전 일치 + 쪽지 수신 시각 ±30분(설정 가능) 내 생성/수정 → ③ 파일명만 일치하는 것 중 가장 가까운 시각. 모두 실패하면 **파일명만 기록**하고 md에 `첨부파일 원본을 찾지 못함` 주석을 남긴다 |
+| FR-2.4 | 매칭 전략 (우선순위): ① **파일명 일치 + 바이트 크기 일치** (`FilePath` 가 개별 크기를 갖고 있다 — 실측에서 디스크 파일과 정확히 일치했다) → ② 파일명만 일치하는 것 중 수신 시각에 가장 가까운 것 → ③ 실패. 모두 실패하면 **파일명·크기만 기록**하고 md에 `첨부파일 원본을 찾지 못함` 주석을 남긴다 |
 | FR-2.5 | 복사는 원자적으로 — `.part` 임시 파일에 쓴 뒤 rename. 드롭박스가 반쯤 쓰인 파일을 동기화하지 않게 한다 |
 | FR-2.6 | 같은 쪽지 안에서 파일명이 겹치면 `이름 (2).ext` 로 회피 |
 | FR-2.7 | 첨부 복사 실패(파일 잠김·권한·용량)는 **쪽지 저장 실패로 취급하지 않는다.** md는 저장하고 실패 사실을 md와 로그에 남긴 뒤 다음 폴링에서 재시도 |
@@ -167,22 +168,89 @@
 
 ## 4. 데이터 설계
 
-### 4.1 입력 (쿨메신저 udb)
+### 4.1 입력 (쿨메신저 udb) — 실물 스키마 확정 (2026-09-02)
 
 ```
-%LOCALAPPDATA%\CoolMessenger\Memo\*.udb        SQLite (WAL), 암호화 없음
-└── tbl_recv
-    ├── MessageKey    INTEGER PK   쪽지 고유번호 (증가) — 중복 방지 1차 키
-    ├── Sender        TEXT         보낸 사람 표시명
-    ├── ReceiveDate   TEXT         "2026/07/16 17:04:52 (목)"
-    ├── Title         TEXT         제목 (비어 있을 수 있음)
-    ├── MessageText   TEXT         본문 (인용된 이전 대화가 뒤에 붙어 있을 수 있음)
-    ├── IsUnRead      INTEGER      읽음 여부 (선택)
-    ├── DeletedDate   TEXT         삭제 시각, NULL이면 살아 있음 (선택)
-    └── (미확정) 수신자 목록 · 첨부파일 메타 → R1 에서 확정
+%LOCALAPPDATA%\CoolMessenger\Memo\<조직코드>_<계정ID>_LX.udb    SQLite(WAL), 암호화 없음
 ```
 
-> `tbl_member` 등 다른 테이블에 수신자 이름이 있을 수 있다. 실기기 스키마 덤프로 확인한다.
+계정마다 파일이 하나씩 생긴다 (로그인한 적 있는 계정은 빈 DB로 남는다). 테이블 11개:
+`tbl_recv`(받은 쪽지) · `tbl_send`(보낸 쪽지) · `tbl_member` · `tbl_group` · `tbl_rank` ·
+`tbl_relation` · `tbl_todolist` · `tbl_alarm` · `tbl_autotext` · `tbl_dbInfo`
+
+#### tbl_recv (받은 쪽지, 19컬럼)
+
+| 컬럼 | 타입 | 내용 | 우리가 쓰는가 |
+|---|---|---|---|
+| `MessageKey` | INTEGER PK | 쪽지 고유번호 (증가) | ✅ 중복 방지 1차 키, 파일명 `#키` |
+| `Title` | TEXT | 제목, **최대 30자**, 빈 값 존재 | ✅ |
+| `Sender` | TEXT | **`표시이름(로그인ID)`** 형식 | ✅ |
+| `SenderKey` | TEXT | `\|1\|<멤버키>\|` | ✅ 이름 보정용 |
+| `ReferenceList` | TEXT | **받는 사람** `\|<인원수>\|<멤버키>\|<멤버키>\|…\|` | ✅ **수신자 목록** |
+| `CCList` | TEXT | 참조, 같은 형식. **NULL 가능**(68%가 NULL) | ✅ |
+| `ReceiveDate` | DATE(TEXT) | `2026/09/02 15:55:52 (수)` 고정 23자 | ✅ |
+| `MessageText` | TEXT | **평문 본문**, 개행 `\r\n` | ✅ 기본 본문 |
+| `MessageBody` | TEXT | **base64(zlib(UTF-16LE HTML))** — 서식 있는 본문 | ⬜ 선택 (HTML→md 옵션) |
+| `FilePath` | TEXT | **첨부파일 목록** (아래 형식). 없으면 빈 문자열 | ✅ **첨부** |
+| `FileHost` | TEXT | `coolmsgrfile[a-c].coolmessenger.com:<포트>` | ⬜ |
+| `CoolFile2SessionID` | TEXT | 파일 전송 세션. 첨부 있는 건만 유효, 없으면 `0` | ⬜ |
+| `MessageType` | INTEGER | `5`=일반(99%), `0`=구형/기타(9건) | ⬜ |
+| `MemoID` | INTEGER | 서버측 8자리 ID, 행마다 고유 | ⬜ 보조 키 후보 |
+| `IsUnRead` | INTEGER | 확인한 DB에서는 **전부 0** | ⬜ |
+| `IsChecked` | INTEGER | 5건만 1 | ⬜ |
+| `LinkURL` | TEXT | **전부 빈 값** | ❌ |
+| `MessageCategory` | INTEGER | **전부 0** | ❌ |
+| `IsMoved` | INTEGER | **전부 NULL** | ❌ |
+
+> **`DeletedDate` 컬럼은 없다.** 삭제된 쪽지는 행 자체가 사라지는 것으로 보인다 → FR-1.6 은
+> "컬럼이 있으면 거른다" 는 선택적 처리로 남긴다.
+
+#### 수신자 목록 파싱
+
+`ReferenceList` / `CCList` / `SenderKey` 는 모두 같은 형식이다.
+
+```
+|3|75|12|48|      →  인원수 3, 멤버키 [75, 12, 48]
+```
+
+멤버키 → 이름 변환은 **`tbl_member`** 로 조인한다.
+
+| tbl_member | 내용 |
+|---|---|
+| `K_MemberID` INTEGER PK | 멤버키 (ReferenceList 가 가리키는 값) |
+| `MemberID` TEXT | 로그인 ID (영문 또는 한글) |
+| `MemberName` TEXT | 표시 이름 |
+| `Gender`, `ProfileCreateAt`, `HP` | 성별 / 프로필 생성 / 휴대폰 |
+
+⚠️ **조인 실패를 전제로 설계한다.** 확인한 DB에서는 쪽지에 등장한 멤버키 97개 중 **20개 이상이
+`tbl_member` 에 없었다** (퇴직·전출·외부 조직). 못 찾으면 이름 대신 `#<멤버키>` 로 적고 넘어간다.
+
+#### 첨부파일 파싱 (`FilePath`)
+
+```
+|<개수>|<총크기>;<크기1>;<크기2>;…||<파일명1>|<코드>||<파일명2>|<코드>|…|
+```
+
+실제 예 (파일 2개):
+
+```
+|2|911872;717824;194048||계획서.hwp|51||공문.hwp|51|
+```
+
+- 크기 목록의 **첫 값은 총합**, 이후가 개별 크기다 (파일 1개면 `size;size` 로 값이 중복된다)
+- 파일명 뒤 숫자(50~57)는 용도 미상 — 우리는 쓰지 않는다
+- 첨부가 없으면 `FilePath` 는 **빈 문자열**
+
+#### 실측 통계 (쪽지 1,076건 기준)
+
+| 항목 | 값 |
+|---|---|
+| 첨부가 있는 쪽지 | 278건 (26%) · 첨부 파일 총 397개 |
+| 제목이 빈 쪽지 | 18건 — 그중 일부는 **본문 첫 줄도 비어 있다** (FR-3.4 필요) |
+| `님이 보낸글 >>` 인용 표기 | 274건 — catmoa `split_recent()` 패턴이 유효 |
+| `메시지 전달 >>` | 22건 |
+| 본문 길이 | 3 ~ 3,267자 |
+| 보낸 쪽지 (`tbl_send`) | 509건 — v2 대상, `Receiver`/`ReceiverKey` 외 구조 동일 |
 
 ### 4.1.1 쿨메신저 로컬 데이터 폴더 (실물 확인 2026-09-02)
 
