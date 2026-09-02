@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>cool2inbox — 쿨메신저 쪽지를 인박스로 배달하는 펭귄</title>
+<meta name="description" content="쿨메신저 쪽지를 마크다운으로 만들어 드롭박스 인박스에 자동 저장하는 Windows 트레이 프로그램. 쪽지 1건 = 파일 1개, 첨부파일까지.">
+<meta property="og:title" content="cool2inbox 🐧📮">
+<meta property="og:description" content="쿨메신저 쪽지를 인박스로 배달하는 펭귄 배달부">
+<meta property="og:image" content="img/idle.png">
+<link rel="icon" href="img/icon.png">
+<style>
+  :root{
+    --ink:#1f2430; --muted:#6b7280; --line:#e7e9ee; --bg:#ffffff; --soft:#f6f7f9;
+    --brand:#4a90e2; --brand-ink:#2f6bb3; --accent:#f7a63c; --ok:#1a7f37; --warn:#92400e;
+    --radius:16px; --shadow:0 1px 2px rgba(20,25,40,.06),0 8px 24px rgba(20,25,40,.06);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --ink:#e8eaf0; --muted:#9aa2b1; --line:#2a2f3a; --bg:#12151c; --soft:#1a1e27;
+           --brand:#5b9bed; --brand-ink:#8bbcf5; --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35); }
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Malgun Gothic","맑은 고딕",
+       "Apple SD Gothic Neo",system-ui,sans-serif;color:var(--ink);background:var(--bg);
+       line-height:1.7;-webkit-font-smoothing:antialiased}
+  a{color:var(--brand-ink);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:960px;margin:0 auto;padding:0 24px}
+  section{padding:72px 0}
+  h1,h2,h3{line-height:1.3;letter-spacing:-.01em}
+  h2{font-size:1.9rem;margin:0 0 8px}
+  .lead{color:var(--muted);font-size:1.08rem;margin:0 0 40px}
+
+  /* hero */
+  .hero{padding:88px 0 64px;text-align:center;
+        background:radial-gradient(1200px 400px at 50% -80px, rgba(74,144,226,.10), transparent 70%)}
+  .hero img.mascot{width:180px;height:180px;filter:drop-shadow(0 12px 24px rgba(20,25,40,.18))}
+  .hero h1{font-size:2.9rem;margin:16px 0 6px}
+  .hero .tag{font-size:1.25rem;color:var(--muted);margin:0 auto 28px;max-width:620px}
+  .badges{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:28px}
+  .pill{font-size:.82rem;color:var(--muted);border:1px solid var(--line);border-radius:999px;
+        padding:5px 12px;background:var(--soft)}
+  .cta{display:inline-flex;align-items:center;gap:10px;background:var(--brand);color:#fff;
+       font-weight:700;font-size:1.05rem;padding:15px 28px;border-radius:999px;box-shadow:var(--shadow);
+       transition:transform .12s ease, box-shadow .12s ease}
+  .cta:hover{transform:translateY(-2px);text-decoration:none;box-shadow:0 10px 30px rgba(74,144,226,.35)}
+  .cta small{font-weight:500;opacity:.85}
+  .os-note{display:block;margin-top:14px;color:var(--muted);font-size:.9rem}
+
+  /* states strip */
+  .states{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-top:8px}
+  .state{width:120px;text-align:center}
+  .state img{width:72px;height:72px}
+  .state b{display:block;font-size:.92rem;margin-top:2px}
+  .state span{display:block;color:var(--muted);font-size:.8rem}
+
+  /* cards */
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+  .card{border:1px solid var(--line);border-radius:var(--radius);padding:22px;background:var(--bg);
+        box-shadow:var(--shadow)}
+  .card .ic{font-size:1.6rem}
+  .card h3{margin:10px 0 6px;font-size:1.12rem}
+  .card p{margin:0;color:var(--muted);font-size:.96rem}
+
+  /* how */
+  .soft{background:var(--soft)}
+  .steps{counter-reset:step;display:grid;gap:14px}
+  .step{display:flex;gap:16px;align-items:flex-start;border:1px solid var(--line);
+        border-radius:var(--radius);padding:18px 20px;background:var(--bg)}
+  .step::before{counter-increment:step;content:counter(step);flex:0 0 auto;width:34px;height:34px;
+        border-radius:50%;background:var(--brand);color:#fff;font-weight:700;display:grid;place-items:center}
+  .step div{flex:1}
+  .step b{display:block}
+  .step span{color:var(--muted);font-size:.95rem}
+
+  /* file example */
+  pre{background:var(--soft);border:1px solid var(--line);border-radius:12px;padding:18px 20px;
+      overflow:auto;font-size:.86rem;line-height:1.55;
+      font-family:"SFMono-Regular",Consolas,"D2Coding","Menlo",monospace}
+  .tree{color:var(--muted)}
+  .fname{color:var(--brand-ink);font-weight:600}
+
+  .note{border-left:4px solid var(--accent);background:var(--soft);border-radius:10px;
+        padding:14px 18px;color:var(--ink);font-size:.95rem}
+  .note.warn{border-left-color:var(--warn)}
+
+  footer{border-top:1px solid var(--line);padding:36px 0;color:var(--muted);font-size:.9rem;text-align:center}
+  .kbd{font-family:monospace;background:var(--soft);border:1px solid var(--line);border-radius:6px;
+       padding:1px 6px;font-size:.85em}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <img class="mascot" src="img/idle.png" alt="cool2inbox 마스코트 — 가방 멘 펭귄 배달부">
+    <h1>cool2inbox</h1>
+    <p class="tag">쿨메신저 쪽지를 <b>인박스로 배달하는 펭귄</b>.<br>쪽지 1건이 마크다운 파일 1개가 됩니다. 첨부파일까지.</p>
+    <div class="badges">
+      <span class="pill">Windows</span>
+      <span class="pill">설치 불필요 · 단일 실행 파일</span>
+      <span class="pill">읽기 전용 · 원본 무손상</span>
+      <span class="pill">MIT License</span>
+    </div>
+    <a class="cta" id="download" href="https://github.com/progh2/cool2inbox/releases/latest">
+      <span>⬇︎ 내려받기</span><small id="os-label">Windows</small>
+    </a>
+    <small class="os-note" id="os-note">최신 릴리스에서 <span class="kbd">cool2inbox.exe</span> 를 받아 실행하세요.</small>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <h2>어떤 문제를 푸나요?</h2>
+    <p class="lead">쿨메신저로 오는 쪽지는 메신저 안에 갇혀 있습니다. 검색도 백업도 불편하고,
+      PC를 옮기면 통째로 사라지기도 합니다. cool2inbox는 트레이에 조용히 상주하면서 새 쪽지를
+      마크다운으로 바꿔 드롭박스 인박스에 넣어 둡니다. 드롭박스가 알아서 동기화하니 할 일이 없습니다.</p>
+    <div class="grid">
+      <div class="card"><div class="ic">📝</div><h3>쪽지 → 마크다운</h3>
+        <p>제목·보낸 사람·보낸 시각·받는 사람·본문·첨부파일명까지 담은 <code>.md</code> 파일 하나로.</p></div>
+      <div class="card"><div class="ic">📎</div><h3>첨부파일까지</h3>
+        <p>쪽지별 하위 폴더로 복사하고 본문에서 링크로 연결합니다. 원본은 건드리지 않습니다.</p></div>
+      <div class="card"><div class="ic">🔁</div><h3>중복 없음</h3>
+        <p>쪽지 고유번호 + 내용 해시 + 인박스 실사, 3중 판정. 몇 번을 다시 실행해도 안전합니다.</p></div>
+      <div class="card"><div class="ic">⏱️</div><h3>알아서 확인</h3>
+        <p>기본 5분마다 조용히 확인합니다. 트레이에서 언제든 잠시 멈추고 재개할 수 있습니다.</p></div>
+      <div class="card"><div class="ic">📚</div><h3>이전 쪽지도</h3>
+        <p>지난 몇 년치도 한 번에. 진행률을 보며 중간에 멈출 수 있고, 이미 있는 건 건너뜁니다.</p></div>
+      <div class="card"><div class="ic">🔒</div><h3>읽기만 합니다</h3>
+        <p>쿨메신저 DB와 받은 파일은 <b>읽기 전용</b>으로만 엽니다. 쪽지를 보내거나 지우지 않습니다.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="soft">
+  <div class="wrap">
+    <h2>트레이에서 상태를 한눈에</h2>
+    <p class="lead">작은 펭귄이 지금 무슨 일을 하는지 색으로 알려 줍니다.</p>
+    <div class="states">
+      <div class="state"><img src="img/idle.png" alt=""><b>대기</b><span>조용히 기다리는 중</span></div>
+      <div class="state"><img src="img/working.png" alt=""><b>배달 중</b><span>쪽지를 저장하는 중</span></div>
+      <div class="state"><img src="img/paused.png" alt=""><b>일시정지</b><span>잠시 멈춤</span></div>
+      <div class="state"><img src="img/error.png" alt=""><b>오류</b><span>확인이 필요해요</span></div>
+      <div class="state"><img src="img/setup.png" alt=""><b>설정 필요</b><span>폴더를 정해 주세요</span></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>이렇게 저장됩니다</h2>
+    <p class="lead">인박스 안에 쪽지 폴더가 생기고, 그 아래에 마크다운과 첨부파일이 쌓입니다.</p>
+<pre class="tree">D:\Dropbox\Inbox\
+└── 쿨메신저\
+    ├── <span class="fname">2026-09-02_1704_홍길동_2학기_교육과정_협의회_#1234.md</span>
+    ├── <span class="fname">2026-09-02_1830_김철수_무제_#1235.md</span>
+    └── 첨부파일\
+        └── 2026-09-02_1704_홍길동_#1234\
+            ├── 협의회자료.hwp
+            └── 참석자명단.xlsx</pre>
+    <p class="lead" style="margin-top:28px">파일 하나를 열면 이렇게 생겼습니다. 본문은 <b>가공하지 않습니다</b> — 요약도 마스킹도 없이, 원본 그대로 보관합니다.</p>
+<pre>---
+source: coolmessenger
+message_key: 1234
+title: 2학기 교육과정 협의회
+sender: 홍길동
+received: 2026-09-02 17:04:52
+recipients: [김철수, 이영희, …]
+attachments: [협의회자료.hwp, 참석자명단.xlsx]
+---
+
+# 2학기 교육과정 협의회
+
+내일 오후 3시 시청각실에서 협의회를 진행합니다.
+첨부된 자료를 미리 읽어 오세요.
+
+## 첨부파일
+
+- [협의회자료.hwp](첨부파일/2026-09-02_1704_홍길동_#1234/협의회자료.hwp)</pre>
+  </div>
+</section>
+
+<section class="soft">
+  <div class="wrap">
+    <h2>시작하기</h2>
+    <p class="lead">폴더 두 곳만 정하면 끝납니다. 대부분 자동으로 찾아 드립니다.</p>
+    <div class="steps">
+      <div class="step"><div><b>내려받아 실행</b><span><span class="kbd">cool2inbox.exe</span> 를 받아 더블클릭하면 트레이에 펭귄이 나타납니다. 설치 과정이 없습니다.</span></div></div>
+      <div class="step"><div><b>폴더 확인</b><span>첫 실행 마법사가 쿨메신저 폴더와 드롭박스 인박스를 자동으로 찾아 제안합니다. 확인만 누르면 됩니다.</span></div></div>
+      <div class="step"><div><b>끝</b><span>이제 새 쪽지가 오면 알아서 인박스로 배달됩니다. 트레이 아이콘으로 언제든 잠시 멈추거나 설정을 바꿀 수 있습니다.</span></div></div>
+    </div>
+    <p class="note warn" style="margin-top:24px">⚠️ 저장한 파일은 드롭박스로 동기화됩니다. 업무 쪽지를 외부 클라우드에 올려도 되는지 소속 기관의 규정을 먼저 확인해 주세요.</p>
+    <p class="note" style="margin-top:14px">Windows SmartScreen 경고가 뜨면 <b>추가 정보 → 실행</b>을 눌러 주세요. 코드 서명 인증서가 없어 생기는 경고이며, 프로그램 문제가 아닙니다.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>개인정보는 안전한가요?</h2>
+    <p class="lead">이 프로그램은 <b>인터넷으로 아무것도 보내지 않습니다</b>(새 버전 확인 제외). 모든 처리는 사용자 PC 안에서만 일어납니다.</p>
+    <div class="grid">
+      <div class="card"><h3>로컬에서만</h3><p>쪽지 내용은 PC 밖으로 나가지 않습니다. 저장 위치는 사용자가 지정한 드롭박스 폴더뿐입니다.</p></div>
+      <div class="card"><h3>본문은 로그에 안 남김</h3><p>문제 진단용 로그에는 쪽지 키·시각·파일명까지만 남고 본문·제목은 기록하지 않습니다.</p></div>
+      <div class="card"><h3>원본 무손상</h3><p>쿨메신저 DB는 임시 복사본을 읽기 전용으로만 엽니다. 원본은 실행 전후로 한 바이트도 바뀌지 않습니다.</p></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p><img src="img/idle.png" width="40" alt="" style="vertical-align:middle;opacity:.9">
+       &nbsp;<b>cool2inbox</b> · MIT License · © 2026 Gihun Ham</p>
+    <p><a href="https://github.com/progh2/cool2inbox">GitHub</a> ·
+       <a href="https://github.com/progh2/cool2inbox/releases">릴리스</a> ·
+       <a href="https://github.com/progh2/cool2inbox/blob/main/docs/PRD.md">문서(PRD)</a></p>
+    <p style="margin-top:12px;font-size:.82rem">쿨메신저는 각 제작사의 상표이며, 이 프로젝트는 해당 제작사와 무관합니다.</p>
+  </div>
+</footer>
+
+<script>
+  // OS 감지 — 안내 문구만 바꾼다. 내려받기는 릴리스 페이지로 보낸다.
+  (function(){
+    var ua = navigator.userAgent || "";
+    var label = document.getElementById("os-label");
+    var note = document.getElementById("os-note");
+    if(/Windows/i.test(ua)){
+      label.textContent = "Windows";
+    } else if(/Mac/i.test(ua)){
+      label.textContent = "Windows용";
+      note.innerHTML = "이 프로그램은 <b>Windows 전용</b>입니다 (쿨메신저가 Windows용이라서요). " +
+                       "소스로 실행하려면 <a href='https://github.com/progh2/cool2inbox'>GitHub</a> 를 보세요.";
+    } else {
+      label.textContent = "Windows용";
+      note.innerHTML = "이 프로그램은 <b>Windows 전용</b>입니다. " +
+                       "최신 릴리스에서 <span class='kbd'>cool2inbox.exe</span> 를 받으세요.";
+    }
+  })();
+</script>
+</body>
+</html>
