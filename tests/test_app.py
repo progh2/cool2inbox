@@ -70,9 +70,14 @@ def test_설정_전에_인박스를_열면_설정으로_안내한다(qapp, opene
     ctl.tray.hide()
 
 
-def test_로그_보기는_로그_폴더를_연다(ctl, opened, isolated_dirs):
+def test_로그_보기는_로그_창을_연다(ctl, opened, isolated_dirs):
+    """창 안의 [폴더 열기] 를 눌러야 탐색기가 뜬다 — 바로 폴더를 열지 않는다."""
     ctl.open_logs()
+    assert ctl._logs is not None
+    assert opened == []
+    ctl._logs.btn_folder.click()
     assert opened == [str(isolated_dirs)]
+    ctl._logs.close()
 
 
 def test_트레이_시그널이_컨트롤러에_연결돼_있다(ctl, opened):

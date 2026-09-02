@@ -17,6 +17,7 @@ from src.sources.coolm import CoolmError
 from src.sources.watcher import Watcher
 from src.state import StateDB
 from src.writer.backfill import Backfill
+from src.ui.log_dialog import LogDialog
 from src.ui.progress_dialog import BackfillProgressDialog
 from src.ui.settings_dialog import SettingsDialog
 from src.ui.tray import AppState, Tray
@@ -40,6 +41,7 @@ class AppController(QObject):
         self.watcher = watcher if watcher is not None else Watcher(self.config, self.state, parent=self)
         self.instance_server = None          # main 이 넣어 준다 (종료할 때 닫는다)
         self._settings = None                # 열려 있는 설정 창
+        self._logs = None                    # 열려 있는 로그 창
         self._backfill = None                # 돌고 있는 백필
         self._progress = None
         self._connect()
@@ -266,7 +268,15 @@ class AppController(QObject):
         log.info("설정을 반영했습니다.")
 
     def open_logs(self) -> None:
-        osutil.open_folder(log_path().parent)
+        """로그 보기 창 (FR-9.1). 이미 열려 있으면 새로 고쳐 앞으로 가져온다."""
+        if self._logs is not None and self._logs.isVisible():
+            self._logs.reload()
+            self._logs.raise_()
+            self._logs.activateWindow()
+            return
+        self._logs = LogDialog(log_path())
+        self._logs.open_folder_requested.connect(lambda: osutil.open_folder(log_path().parent))
+        self._logs.show()
 
     def show_about(self) -> None:
         from src import __version__
