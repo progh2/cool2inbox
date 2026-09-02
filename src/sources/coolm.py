@@ -244,24 +244,49 @@ def memo_dir_candidates() -> list[Path]:
     return out
 
 
+def _count_recv(uri: str) -> int | None:
+    """tbl_recv 행 수. 테이블이 없거나 열 수 없으면 None."""
+    try:
+        con = sqlite3.connect(uri, uri=True)
+    except sqlite3.Error:
+        return None
+    try:
+        tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "tbl_recv" not in tables:
+            return None
+        return int(con.execute("SELECT COUNT(*) FROM tbl_recv").fetchone()[0])
+    except sqlite3.Error:
+        return None
+    finally:
+        con.close()
+
+
 def has_messages(udb: str | Path) -> int:
     """이 udb 가 받은 쪽지를 담고 있으면 행 수, 아니면 0.
 
     설정 폴더의 `tbl_tabInfo` 짜리 udb 와 0행짜리 빈 계정 DB 를 여기서 걸러낸다.
+
+    **`immutable=1` 로 연다.** 평범한 `mode=ro` 로 열면 SQLite 가 WAL 처리를 위해 원본 폴더에
+    `-shm`/`-wal` 파일을 만든다 — 읽기 전용이라도 사용자 폴더에 파일을 쓰는 셈이라 안 된다.
+    immutable 은 WAL 을 무시하므로, 테이블은 있는데 0행으로 보이면 (WAL 에만 데이터가 있는 경우)
+    복사본을 만들어 다시 센다.
     """
-    try:
-        con = sqlite3.connect(f"file:{udb}?mode=ro", uri=True)
-    except sqlite3.Error:
+    n = _count_recv(f"file:{udb}?mode=ro&immutable=1")
+    if n is None:
         return 0
+    if n > 0:
+        return n
+    tmp = tempfile.mkdtemp(prefix="cool2inbox_probe_")
     try:
-        tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        if "tbl_recv" not in tables:
-            return 0
-        return int(con.execute("SELECT COUNT(*) FROM tbl_recv").fetchone()[0])
-    except sqlite3.Error:
+        dst = os.path.join(tmp, "probe.udb")
+        for ext in ("", "-wal", "-shm"):
+            if os.path.exists(str(udb) + ext):
+                _copy(str(udb) + ext, dst + ext)
+        return _count_recv(f"file:{dst}?mode=ro") or 0
+    except OSError:
         return 0
     finally:
-        con.close()
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def find_message_udb(memo_dir: str | Path) -> str:
