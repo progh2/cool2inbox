@@ -1,0 +1,4 @@
+-r requirements.txt
+
+# 배포 빌드
+pyinstaller>=6.10

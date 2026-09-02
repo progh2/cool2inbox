@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: 테스트 (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      # Qt GUI 는 화면이 없어도 이 라이브러리들을 요구한다.
+      # 없으면 QApplication 이 뜨지 않아 GUI 테스트가 전부 건너뛰어진다.
+      - name: Qt 시스템 의존성
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon0 libegl1 libgl1
+
+      - run: pip install -r requirements.txt
+      - name: pytest
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: pytest -q
+
+  build:
+    name: Windows exe
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      # 태그와 src/__init__.py 의 버전이 어긋난 채 릴리스되는 사고를 막는다.
+      - name: 태그와 버전 일치 확인
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          VER=$(python -c "import re,pathlib; print(re.search(r'__version__ = \"([^\"]+)\"', pathlib.Path('src/__init__.py').read_text()).group(1))")
+          echo "태그 $TAG / 소스 $VER"
+          if [ "$TAG" != "$VER" ]; then
+            echo "::error::태그(v$TAG)와 src/__init__.py 의 버전($VER)이 다릅니다."
+            exit 1
+          fi
+
+      - run: pip install -r requirements-dev.txt
+      - name: 빌드
+        run: python build.py --clean
+
+      - name: 산출물 확인
+        shell: bash
+        run: |
+          ls -la dist/
+          test -f dist/cool2inbox.exe || (echo "::error::exe 가 만들어지지 않았습니다." && exit 1)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cool2inbox-windows
+          path: dist/cool2inbox.exe
+
+      - name: 릴리스에 첨부
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/cool2inbox.exe
+          generate_release_notes: true
+          body: |
+            ## 설치
+
+            `cool2inbox.exe` 를 내려받아 실행하면 트레이에 펭귄이 나타납니다.
+            처음 실행하면 설정 마법사가 폴더를 자동으로 찾아 제안합니다.
+
+            > Windows SmartScreen 경고가 뜨면 **추가 정보 → 실행**을 눌러 주세요.
+            > 코드 서명 인증서가 없어 생기는 경고입니다.
+
+            이 프로그램은 쿨메신저를 **읽기만** 합니다. 쪽지를 보내거나 읽음 처리하거나 삭제하지 않습니다.
