@@ -16,6 +16,8 @@ from src.sources.attachments import AttachmentFinder
 from src.sources.coolm import CoolmError
 from src.sources.watcher import Watcher
 from src.state import StateDB
+from src.writer.backfill import Backfill
+from src.ui.progress_dialog import BackfillProgressDialog
 from src.ui.settings_dialog import SettingsDialog
 from src.ui.tray import AppState, Tray
 
@@ -38,6 +40,8 @@ class AppController(QObject):
         self.watcher = watcher if watcher is not None else Watcher(self.config, self.state, parent=self)
         self.instance_server = None          # main 이 넣어 준다 (종료할 때 닫는다)
         self._settings = None                # 열려 있는 설정 창
+        self._backfill = None                # 돌고 있는 백필
+        self._progress = None
         self._connect()
         self.refresh_state()
         self.watcher.apply_config()
@@ -186,9 +190,68 @@ class AppController(QObject):
         self.tray.notify("cool2inbox", f"이력 {n}건을 지웠습니다.")
 
     def start_backfill(self) -> None:
-        """이전 쪽지 모두 가져오기 (#19 에서 붙인다)."""
-        log.info("백필 요청 — 아직 구현 전입니다.")
-        self.tray.notify("cool2inbox", "이전 쪽지 가져오기는 아직 준비 중입니다.")
+        """이전 쪽지 모두 가져오기 (FR-7.5). 미리보기로 확인을 받고 시작한다."""
+        from PySide6.QtWidgets import QMessageBox
+
+        if self._backfill is not None and self._backfill.running:
+            self.tray.notify("cool2inbox", "이미 가져오는 중입니다.")
+            return
+        if not self.config.is_configured():
+            self.open_settings()
+            return
+
+        backfill = Backfill(self.config, self.state, self.watcher.importer, parent=self)
+        try:
+            preview = backfill.preview(self.watcher.memo_dir())
+        except CoolmError as e:
+            self.tray.notify("cool2inbox", str(e), error=True)
+            return
+
+        parent = self._settings if self._settings is not None else None
+        if not preview.to_import:
+            QMessageBox.information(parent, "이전 쪽지 가져오기", preview.describe())
+            return
+        answer = QMessageBox.question(
+            parent, "이전 쪽지 가져오기",
+            f"{preview.describe()}\n\n지금 가져올까요?\n"
+            "이미 인박스에 있는 쪽지는 건너뜁니다. 중간에 취소할 수 있습니다.")
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        self._backfill = backfill
+        self._progress = BackfillProgressDialog(preview.to_import, parent)
+        self._progress.cancel_requested.connect(backfill.cancel)
+        backfill.progress.connect(self.on_backfill_progress)
+        backfill.finished.connect(self.on_backfill_finished)
+        backfill.failed.connect(self.on_backfill_failed)
+        self.tray.set_state(AppState.WORKING)
+        self._progress.show()
+        backfill.start(self.watcher.memo_dir())
+
+    def on_backfill_progress(self, done: int, total: int, name: str) -> None:
+        if self._progress is not None:
+            self._progress.set_progress(done, total, name)
+
+    def on_backfill_finished(self, summary) -> None:
+        cancelled = self._backfill is not None and self._backfill.cancelled
+        self._close_progress()
+        self.refresh_state()
+        if self._settings is not None:
+            self._settings.set_stats(self.state.stats())
+        head = "가져오기를 멈췄습니다" if cancelled else "이전 쪽지를 모두 가져왔습니다"
+        self.tray.notify("cool2inbox", f"{head} — {summary.describe()}")
+        log.info("백필 결과: %s", summary.describe())
+
+    def on_backfill_failed(self, message: str) -> None:
+        self._close_progress()
+        self.refresh_state()
+        self.tray.notify("cool2inbox", message, error=True)
+
+    def _close_progress(self) -> None:
+        if self._progress is not None:
+            self._progress.cancel_requested.disconnect()
+            self._progress.close()
+            self._progress = None
 
     def on_settings_applied(self, config) -> None:
         """설정 저장 직후 — 재시작 없이 반영한다 (FR-6.6)."""
