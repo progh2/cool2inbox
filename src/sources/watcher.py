@@ -22,6 +22,8 @@ from src.writer.importer import SAVED, SKIPPED, Importer, Summary
 
 log = logging.getLogger(__name__)
 
+RETRY_PER_POLL = 30      # 한 번에 다시 확인할 미완료 첨부 쪽지 수
+
 
 class Watcher(QObject):
     poll_started = Signal()
@@ -121,13 +123,33 @@ class Watcher(QObject):
 
     def _collect(self) -> Summary:
         c = self.config.coolm
+        limit = max(1, int(self.config.schedule.max_per_poll))
         with CoolmReader(self.memo_dir()) as r:
-            messages = r.messages_after(c.last_message_key,
-                                        limit=max(1, int(self.config.schedule.max_per_poll)))
-        if not messages:
-            return Summary()
-        summary = self.importer.import_many(messages)
-        self._advance(summary)
+            messages = r.messages_after(c.last_message_key, limit=limit)
+            summary = self.importer.import_many(messages) if messages else Summary()
+            self._advance(summary)
+            summary = self._retry_attachments(r, summary)
+        return summary
+
+    def _retry_attachments(self, reader, summary: Summary) -> Summary:
+        """못 찾았던 첨부를 다시 찾는다 (FR-2.7).
+
+        쿨메신저는 사용자가 눌러서 받기 전까지 첨부를 PC 에 내려받지 않는다. 쪽지가 도착한
+        시점에는 원본이 없다가 나중에 생기는 것이 오히려 보통이다. 그래서 매 폴링마다
+        미완료 목록을 다시 훑는다.
+        """
+        pending = self.state.pending_attachments()[:RETRY_PER_POLL]
+        if not pending:
+            return summary
+        rows = {r.message_key: r for r in pending}
+        for m in reader.messages_by_keys(list(rows)):
+            try:
+                result = self.importer.retry_attachments(m, rows[m.key])
+            except OSError as e:
+                log.warning("첨부 재시도 실패 (쪽지 %s): %s", m.key, e)
+                continue
+            if result.status == SAVED:
+                summary.add(result)
         return summary
 
     def _advance(self, summary: Summary) -> None:

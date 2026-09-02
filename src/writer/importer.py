@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -17,9 +18,23 @@ from src.writer import naming
 from src.writer.inbox import InboxError, InboxWriter
 from src.writer.markdown import AttachmentLink, RenderOptions, render
 
+
+def _parse_time(text: str):
+    from datetime import datetime
+
+    try:
+        return datetime.strptime(text, "%Y-%m-%d %H:%M:%S")
+    except (ValueError, TypeError):
+        return None
+
 log = logging.getLogger(__name__)
 
 SAVED, SKIPPED, FAILED = "saved", "skipped", "failed"
+
+
+def md_sha(text: str) -> str:
+    """우리가 쓴 md 본문의 지문. 사용자가 파일을 손댔는지 판별하는 데 쓴다."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 @dataclass
@@ -136,7 +151,7 @@ class Importer:
         md_path = self.writer.write_note(filename, text)
 
         self.state.record(message.key, message.content_hash(), md_path,
-                          attach_total=len(links), attach_ok=ok)
+                          attach_total=len(links), attach_ok=ok, md_sha=md_sha(text))
         log.info("쪽지 %s 저장: %s (첨부 %d/%d)", message.key, md_path.name, ok, len(links))
         return ImportResult(message.key, SAVED, md_path=md_path,
                             attach_total=len(links), attach_ok=ok)
@@ -172,6 +187,44 @@ class Importer:
                     log.warning("첨부 복사 실패 (쪽지 %s): %s", message.key, e)
             links.append(link)
         return links, ok
+
+    # ---- 첨부 재시도 (FR-2.7)
+
+    def retry_attachments(self, message, row) -> ImportResult:
+        """이미 저장한 쪽지의 못 찾은 첨부를 다시 찾는다.
+
+        쿨메신저는 사용자가 눌러서 받기 전까지 첨부를 PC 에 내려받지 않는다. 그래서 쪽지가
+        도착한 시점에는 원본이 없다가 나중에 생기는 일이 흔하다. 매 폴링마다 다시 찾아 본다.
+
+        md 를 다시 쓰는 것은 **우리가 쓴 그대로일 때만** 한다. 사용자가 메모를 덧붙였다면
+        파일은 건드리지 않고 첨부만 복사한다 — 인박스는 사용자의 것이다.
+        """
+        md_path = Path(row.md_path)
+        if not md_path.exists():
+            return ImportResult(message.key, SKIPPED, "md 파일이 없습니다")
+
+        links, ok = self._attachments(message)
+        if ok <= row.attach_ok:
+            return ImportResult(message.key, SKIPPED, "새로 찾은 첨부가 없습니다",
+                                md_path=md_path, attach_total=len(links), attach_ok=ok)
+
+        o = self.config.output
+        text = render(message, attachments=links, imported_at=_parse_time(row.imported_at),
+                      options=RenderOptions(split_quoted=o.split_quoted,
+                                            include_recipients=o.include_recipients,
+                                            include_cc=o.include_cc,
+                                            include_attachments=o.include_attachments))
+        untouched = row.md_sha and md_sha(md_path.read_text(encoding="utf-8")) == row.md_sha
+        if untouched:
+            self.writer.write_note(md_path.name, text)
+            self.state.update_attachments(message.key, ok, md_sha(text))
+            log.info("쪽지 %s 첨부 %d개를 뒤늦게 찾아 md 를 갱신했습니다", message.key, ok - row.attach_ok)
+        else:
+            self.state.update_attachments(message.key, ok)
+            log.info("쪽지 %s 첨부 %d개를 복사했습니다 (md 는 손대지 않음 — 사용자가 편집함)",
+                     message.key, ok - row.attach_ok)
+        return ImportResult(message.key, SAVED, "" if untouched else "md 는 사용자 편집본이라 그대로 둠",
+                            md_path=md_path, attach_total=len(links), attach_ok=ok)
 
     # ---- 여러 건
 

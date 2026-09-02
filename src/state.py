@@ -19,7 +19,7 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 FRONT_MATTER_SCAN_LINES = 60      # md 머리말은 이 안에서 끝난다고 본다
 
 
@@ -31,6 +31,7 @@ class ImportedRow:
     imported_at: str
     attach_total: int
     attach_ok: int
+    md_sha: str = ""             # 우리가 쓴 md 본문의 sha256 — 사용자가 손댔는지 판별용
 
     @property
     def attachments_pending(self) -> bool:
@@ -78,6 +79,9 @@ class StateDB:
                 attach_ok    INTEGER NOT NULL DEFAULT 0
             )""")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_hash ON imported(content_hash)")
+            cols = {r[1] for r in cur.execute("PRAGMA table_info(imported)")}
+            if "md_sha" not in cols:            # v1 → v2
+                cur.execute("ALTER TABLE imported ADD COLUMN md_sha TEXT NOT NULL DEFAULT ''")
             cur.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             self._con.commit()
 
@@ -133,22 +137,28 @@ class StateDB:
     # ---- 기록
 
     def record(self, message_key: int, content_hash: str, md_path: str | Path,
-               attach_total: int = 0, attach_ok: int = 0, imported_at: str = "") -> None:
+               attach_total: int = 0, attach_ok: int = 0, imported_at: str = "",
+               md_sha: str = "") -> None:
         """저장이 **성공한 뒤에만** 부른다 (FR-4.4). 같은 키를 다시 기록하면 갱신된다."""
-        self._con.execute(
-            "INSERT OR REPLACE INTO imported "
-            "(message_key, content_hash, md_path, imported_at, attach_total, attach_ok) "
-            "VALUES (?,?,?,?,?,?)",
-            (int(message_key), content_hash, str(md_path),
-             imported_at or datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-             int(attach_total), int(attach_ok)))
-        self._con.commit()
-
-    def update_attachments(self, message_key: int, attach_ok: int) -> None:
-        """첨부 재시도 결과 반영."""
         with self._lock:
-            self._con.execute("UPDATE imported SET attach_ok=? WHERE message_key=?",
-                              (int(attach_ok), int(message_key)))
+            self._con.execute(
+                "INSERT OR REPLACE INTO imported "
+                "(message_key, content_hash, md_path, imported_at, attach_total, attach_ok, md_sha) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (int(message_key), content_hash, str(md_path),
+                 imported_at or datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                 int(attach_total), int(attach_ok), md_sha))
+            self._con.commit()
+
+    def update_attachments(self, message_key: int, attach_ok: int, md_sha: str = "") -> None:
+        """첨부 재시도 결과 반영. md 를 다시 썼으면 새 지문도 함께 남긴다."""
+        with self._lock:
+            if md_sha:
+                self._con.execute("UPDATE imported SET attach_ok=?, md_sha=? WHERE message_key=?",
+                                  (int(attach_ok), md_sha, int(message_key)))
+            else:
+                self._con.execute("UPDATE imported SET attach_ok=? WHERE message_key=?",
+                                  (int(attach_ok), int(message_key)))
             self._con.commit()
 
     def forget(self, message_key: int) -> None:
@@ -198,9 +208,11 @@ class StateDB:
 # ---------------------------------------------------------------- 도구
 
 def _row(r: sqlite3.Row) -> ImportedRow:
+    keys = r.keys()
     return ImportedRow(message_key=r["message_key"], content_hash=r["content_hash"],
                        md_path=r["md_path"], imported_at=r["imported_at"],
-                       attach_total=r["attach_total"], attach_ok=r["attach_ok"])
+                       attach_total=r["attach_total"], attach_ok=r["attach_ok"],
+                       md_sha=r["md_sha"] if "md_sha" in keys else "")
 
 
 def _mtime(p: Path) -> str:
