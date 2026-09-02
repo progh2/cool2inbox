@@ -9,11 +9,14 @@ import logging
 
 from PySide6.QtCore import QObject
 
-from src import config as cfg
+from src import autostart, config as cfg
 from src import osutil
 from src.logging_setup import log_path
+from src.sources.attachments import AttachmentFinder
+from src.sources.coolm import CoolmError
 from src.sources.watcher import Watcher
 from src.state import StateDB
+from src.ui.settings_dialog import SettingsDialog
 from src.ui.tray import AppState, Tray
 
 log = logging.getLogger(__name__)
@@ -34,6 +37,7 @@ class AppController(QObject):
         self.state = state if state is not None else StateDB(cfg.state_path())
         self.watcher = watcher if watcher is not None else Watcher(self.config, self.state, parent=self)
         self.instance_server = None          # main 이 넣어 준다 (종료할 때 닫는다)
+        self._settings = None                # 열려 있는 설정 창
         self._connect()
         self.refresh_state()
         self.watcher.apply_config()
@@ -121,9 +125,71 @@ class AppController(QObject):
             self.tray.notify("cool2inbox", f"폴더를 열지 못했습니다:\n{d}", error=True)
 
     def open_settings(self) -> None:
-        """설정 창은 #18, 첫 실행 마법사는 #17 에서 붙인다."""
-        log.info("설정 창 요청 — 아직 구현 전입니다.")
-        self.tray.notify("cool2inbox", "설정 창은 아직 준비 중입니다.")
+        """설정 창 (FR-6). 이미 열려 있으면 앞으로 가져온다."""
+        if self._settings is not None and self._settings.isVisible():
+            self._settings.raise_()
+            self._settings.activateWindow()
+            return
+        self._settings = self.build_settings_dialog()
+        self._settings.show()
+
+    def build_settings_dialog(self) -> SettingsDialog:
+        """창을 만들고 시그널을 연결한다 (테스트에서 그대로 쓴다)."""
+        dlg = SettingsDialog(self.config, stats=self.state.stats())
+        dlg.coolm_test_requested.connect(lambda: self._test_coolm(dlg))
+        dlg.recv_test_requested.connect(lambda: self._test_recv(dlg))
+        dlg.rebuild_requested.connect(lambda: self._rebuild_history(dlg))
+        dlg.clear_history_requested.connect(lambda: self._clear_history(dlg))
+        dlg.backfill_requested.connect(self.start_backfill)
+        dlg.applied.connect(self.on_settings_applied)
+        return dlg
+
+    # ---- 설정 창이 요청하는 동작
+
+    def _test_coolm(self, dlg: SettingsDialog) -> None:
+        from src.sources.coolm import CoolmReader
+
+        path = dlg.pick_memo.value()
+        try:
+            with CoolmReader(path) as r:
+                dlg.show_coolm_result(r.summary())
+        except CoolmError as e:
+            dlg.show_coolm_result(str(e), ok=False)
+
+    def _test_recv(self, dlg: SettingsDialog) -> None:
+        path = dlg.pick_recv.value()
+        text = AttachmentFinder(path, dlg.spin_attach_minutes.value()).summary()
+        dlg.show_recv_result(text, ok=text.startswith("연결 OK"))
+
+    def _rebuild_history(self, dlg: SettingsDialog) -> None:
+        n = self.state.rebuild_from_inbox(self.config.inbox.coolm_dir())
+        dlg.set_stats(self.state.stats())
+        self.tray.notify("cool2inbox", f"인박스에서 이력 {n}건을 되살렸습니다."
+                         if n else "되살릴 이력이 없습니다.")
+
+    def _clear_history(self, dlg: SettingsDialog) -> None:
+        n = self.state.clear()
+        self.config.coolm.last_message_key = 0
+        self._save()
+        dlg.set_stats(self.state.stats())
+        self.tray.notify("cool2inbox", f"이력 {n}건을 지웠습니다.")
+
+    def start_backfill(self) -> None:
+        """이전 쪽지 모두 가져오기 (#19 에서 붙인다)."""
+        log.info("백필 요청 — 아직 구현 전입니다.")
+        self.tray.notify("cool2inbox", "이전 쪽지 가져오기는 아직 준비 중입니다.")
+
+    def on_settings_applied(self, config) -> None:
+        """설정 저장 직후 — 재시작 없이 반영한다 (FR-6.6)."""
+        self.config = config
+        try:
+            autostart.set_enabled(config.schedule.autostart)
+        except autostart.AutostartError as e:
+            log.warning("자동 실행 설정 실패: %s", e)
+            self.tray.notify("cool2inbox", str(e), error=True)
+        self.watcher.apply_config(config)
+        self.refresh_state()
+        log.info("설정을 반영했습니다.")
 
     def open_logs(self) -> None:
         osutil.open_folder(log_path().parent)
