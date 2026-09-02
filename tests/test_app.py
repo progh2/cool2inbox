@@ -166,3 +166,21 @@ def test_오류는_알림을_꺼도_알린다(ctl, monkeypatch):
     ctl.on_poll_error("쿨메신저 쪽지 폴더가 없습니다: C:\\없음")
     assert notices[0][1] is True
     assert ctl.tray.state is AppState.ERROR
+
+
+def test_설정이_없으면_설정_창을_띄운다(qapp, monkeypatch):
+    from src.config import Config
+
+    ctl = AppController(qapp, config=Config())
+    opened = []
+    monkeypatch.setattr(ctl, "open_settings", lambda: opened.append(1))
+    assert ctl.prompt_setup_if_needed() is True
+    assert opened == [1]
+    ctl.tray.hide()
+
+
+def test_설정이_있으면_띄우지_않는다(ctl, monkeypatch):
+    opened = []
+    monkeypatch.setattr(ctl, "open_settings", lambda: opened.append(1))
+    assert ctl.prompt_setup_if_needed() is False
+    assert opened == []

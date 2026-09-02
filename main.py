@@ -46,6 +46,7 @@ def main(argv: list[str] | None = None) -> int:
     controller.instance_server = server
     holder["tray"] = controller.tray
     controller.tray.show()
+    controller.prompt_setup_if_needed()
 
     log.info("cool2inbox 시작")
     try:

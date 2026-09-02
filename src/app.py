@@ -59,6 +59,17 @@ class AppController(QObject):
         w.poll_finished.connect(self.on_poll_finished)
         w.poll_error.connect(self.on_poll_error)
 
+    def prompt_setup_if_needed(self) -> bool:
+        """설정이 없으면 설정 창을 띄운다 (FR-7.1).
+
+        정식 첫 실행 마법사는 #17 에서 이 자리를 대신한다. 그때까지는 설정 창으로 안내한다.
+        """
+        if self.config.is_configured():
+            return False
+        log.info("설정이 없어 설정 창을 엽니다.")
+        self.open_settings()
+        return True
+
     def refresh_state(self) -> None:
         """설정과 일시정지 여부에 맞춰 아이콘·메뉴를 정한다. 설정 미완료가 최우선이다."""
         paused = self.config.schedule.paused
