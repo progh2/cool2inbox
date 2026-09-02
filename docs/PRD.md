@@ -67,7 +67,7 @@
 | FR-1.5 | 스키마 검증 — `tbl_recv` 와 필수 컬럼(`MessageKey`, `Sender`, `ReceiveDate`, `Title`, `MessageText`)이 없으면 "쿨메신저 버전이 바뀌었을 수 있다"는 안내로 중단. 선택 컬럼(`DeletedDate`, `IsUnRead`, 수신자·첨부 관련)은 **있으면 쓰고 없으면 건너뛴다** |
 | FR-1.6 | `DeletedDate` 가 있으면 삭제된 쪽지는 제외 |
 | FR-1.7 | `ReceiveDate` 형식 `2026/07/16 17:04:52 (목)` → `datetime` 파싱. 실패한 행은 건너뛰고 로그에 남긴다 |
-| FR-1.8 | **수신자 목록·첨부파일 메타데이터의 실제 컬럼/테이블은 미확정** → `tools/dump_coolm_schema.py` 로 실기기에서 확인한 뒤 확정한다 (**리스크 R1**, 이슈 #2) |
+| FR-1.8 | **수신자 목록·첨부파일 메타데이터의 실제 컬럼/테이블은 미확정** → `tools/dump_coolm_schema.py` 로 실기기에서 확인한 뒤 확정한다 (**리스크 R1**, 이슈 [#6](../../issues/6)) |
 | FR-1.9 | 보낸 쪽지(`tbl_send` 등)는 v1 범위 밖 |
 
 ### FR-2 첨부파일
