@@ -194,3 +194,15 @@ def test_인용_분리를_끄면_본문에_그대로():
 def test_수신자를_끄면_머리말에서_빠진다():
     out = render(msg(recipients=["김철수"]), options=RenderOptions(include_recipients=False))
     assert "recipients" not in head(out)
+
+
+def test_콜론으로_끝나는_제목도_따옴표로():
+    """쿨메신저 제목은 30자에서 잘린다 — 하필 콜론에서 끊기면 YAML 이 깨진다.
+    실제 데이터 1,075건 중 5건이 이랬다."""
+    assert yaml_scalar("공지 >>2025/03/14 07:") == '"공지 >>2025/03/14 07:"'
+    assert yaml_scalar("링크는 여기 https:") .startswith('"')
+
+
+def test_콜론_뒤에_글자가_붙으면_평문으로_둔다():
+    """YAML 은 ': ' 와 줄 끝 ':' 만 문제 삼는다."""
+    assert yaml_scalar("07:30 회의") == "07:30 회의"

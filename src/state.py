@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import threading
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -38,12 +39,18 @@ class ImportedRow:
 
 
 class StateDB:
-    """with 문으로 쓰거나 close() 를 직접 부른다."""
+    """with 문으로 쓰거나 close() 를 직접 부른다.
+
+    **스레드를 넘나든다.** 폴링 워커(별도 스레드)가 쓰고, 설정 창(메인 스레드)이 통계를 읽는다.
+    sqlite3 연결은 기본적으로 만든 스레드에서만 쓸 수 있으므로 `check_same_thread=False` 로 열고
+    모든 접근을 락으로 감싼다. 접근 빈도가 낮아(수 분에 한 번) 락 경합은 문제가 되지 않는다.
+    """
 
     def __init__(self, path: str | Path):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._con = sqlite3.connect(str(self.path))
+        self._lock = threading.RLock()
+        self._con = sqlite3.connect(str(self.path), check_same_thread=False)
         self._con.row_factory = sqlite3.Row
         self._migrate()
 
@@ -54,66 +61,74 @@ class StateDB:
         self.close()
 
     def close(self) -> None:
-        if self._con is not None:
-            self._con.close()
-            self._con = None  # type: ignore[assignment]
+        with self._lock:
+            if self._con is not None:
+                self._con.close()
+                self._con = None  # type: ignore[assignment]
 
     def _migrate(self) -> None:
-        cur = self._con.cursor()
-        cur.execute("""CREATE TABLE IF NOT EXISTS imported (
-            message_key  INTEGER PRIMARY KEY,
-            content_hash TEXT NOT NULL,
-            md_path      TEXT NOT NULL,
-            imported_at  TEXT NOT NULL,
-            attach_total INTEGER NOT NULL DEFAULT 0,
-            attach_ok    INTEGER NOT NULL DEFAULT 0
-        )""")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_hash ON imported(content_hash)")
-        cur.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
-        self._con.commit()
+        with self._lock:
+            cur = self._con.cursor()
+            cur.execute("""CREATE TABLE IF NOT EXISTS imported (
+                message_key  INTEGER PRIMARY KEY,
+                content_hash TEXT NOT NULL,
+                md_path      TEXT NOT NULL,
+                imported_at  TEXT NOT NULL,
+                attach_total INTEGER NOT NULL DEFAULT 0,
+                attach_ok    INTEGER NOT NULL DEFAULT 0
+            )""")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_hash ON imported(content_hash)")
+            cur.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+            self._con.commit()
 
     # ---- 조회
 
     def seen(self, message_key: int, content_hash: str = "") -> bool:
         """이미 처리한 쪽지인가. 키 1차, 해시 2차."""
-        row = self._con.execute("SELECT 1 FROM imported WHERE message_key=?", (int(message_key),)).fetchone()
-        if row:
-            return True
-        if content_hash:
-            row = self._con.execute("SELECT 1 FROM imported WHERE content_hash=?", (content_hash,)).fetchone()
-            return row is not None
-        return False
+        with self._lock:
+            row = self._con.execute("SELECT 1 FROM imported WHERE message_key=?", (int(message_key),)).fetchone()
+            if row:
+                return True
+            if content_hash:
+                row = self._con.execute("SELECT 1 FROM imported WHERE content_hash=?", (content_hash,)).fetchone()
+                return row is not None
+            return False
 
     def get(self, message_key: int) -> ImportedRow | None:
-        row = self._con.execute("SELECT * FROM imported WHERE message_key=?", (int(message_key),)).fetchone()
-        return _row(row) if row else None
+        with self._lock:
+            row = self._con.execute("SELECT * FROM imported WHERE message_key=?", (int(message_key),)).fetchone()
+            return _row(row) if row else None
 
     def keys(self) -> set[int]:
         """처리한 MessageKey 전부. 백필 미리보기용 (FR-7.6)."""
-        return {r[0] for r in self._con.execute("SELECT message_key FROM imported")}
+        with self._lock:
+            return {r[0] for r in self._con.execute("SELECT message_key FROM imported")}
 
     def max_key(self) -> int:
-        return int(self._con.execute("SELECT COALESCE(MAX(message_key), 0) FROM imported").fetchone()[0])
+        with self._lock:
+            return int(self._con.execute("SELECT COALESCE(MAX(message_key), 0) FROM imported").fetchone()[0])
 
     def pending_attachments(self) -> list[ImportedRow]:
         """첨부를 다 못 가져온 쪽지들 (FR-2.7 재시도 대상)."""
-        rows = self._con.execute(
-            "SELECT * FROM imported WHERE attach_ok < attach_total ORDER BY message_key").fetchall()
-        return [_row(r) for r in rows]
+        with self._lock:
+            rows = self._con.execute(
+                "SELECT * FROM imported WHERE attach_ok < attach_total ORDER BY message_key").fetchall()
+            return [_row(r) for r in rows]
 
     def stats(self) -> dict:
         """설정 창 '가져오기' 탭에 보여줄 요약 (FR-6.5)."""
-        r = self._con.execute("""SELECT COUNT(*) AS n,
-                                        COALESCE(SUM(attach_total), 0) AS at,
-                                        COALESCE(SUM(attach_ok), 0) AS ao,
-                                        MIN(imported_at) AS first,
-                                        MAX(imported_at) AS last,
-                                        COALESCE(MAX(message_key), 0) AS maxkey
-                                 FROM imported""").fetchone()
-        pending = self._con.execute("SELECT COUNT(*) FROM imported WHERE attach_ok < attach_total").fetchone()[0]
-        return {"notes": r["n"], "attachments": r["at"], "attachments_ok": r["ao"],
-                "attachments_pending_notes": pending, "first_imported_at": r["first"],
-                "last_imported_at": r["last"], "max_message_key": r["maxkey"]}
+        with self._lock:
+            r = self._con.execute("""SELECT COUNT(*) AS n,
+                                            COALESCE(SUM(attach_total), 0) AS at,
+                                            COALESCE(SUM(attach_ok), 0) AS ao,
+                                            MIN(imported_at) AS first,
+                                            MAX(imported_at) AS last,
+                                            COALESCE(MAX(message_key), 0) AS maxkey
+                                     FROM imported""").fetchone()
+            pending = self._con.execute("SELECT COUNT(*) FROM imported WHERE attach_ok < attach_total").fetchone()[0]
+            return {"notes": r["n"], "attachments": r["at"], "attachments_ok": r["ao"],
+                    "attachments_pending_notes": pending, "first_imported_at": r["first"],
+                    "last_imported_at": r["last"], "max_message_key": r["maxkey"]}
 
     # ---- 기록
 
@@ -131,21 +146,24 @@ class StateDB:
 
     def update_attachments(self, message_key: int, attach_ok: int) -> None:
         """첨부 재시도 결과 반영."""
-        self._con.execute("UPDATE imported SET attach_ok=? WHERE message_key=?",
-                          (int(attach_ok), int(message_key)))
-        self._con.commit()
+        with self._lock:
+            self._con.execute("UPDATE imported SET attach_ok=? WHERE message_key=?",
+                              (int(attach_ok), int(message_key)))
+            self._con.commit()
 
     def forget(self, message_key: int) -> None:
         """한 건만 이력에서 지운다 (다시 가져오게 만든다)."""
-        self._con.execute("DELETE FROM imported WHERE message_key=?", (int(message_key),))
-        self._con.commit()
+        with self._lock:
+            self._con.execute("DELETE FROM imported WHERE message_key=?", (int(message_key),))
+            self._con.commit()
 
     def clear(self) -> int:
         """이력 전체 초기화 (FR-4.5). 인박스 파일은 건드리지 않는다."""
-        n = self._con.execute("SELECT COUNT(*) FROM imported").fetchone()[0]
-        self._con.execute("DELETE FROM imported")
-        self._con.commit()
-        return int(n)
+        with self._lock:
+            n = self._con.execute("SELECT COUNT(*) FROM imported").fetchone()[0]
+            self._con.execute("DELETE FROM imported")
+            self._con.commit()
+            return int(n)
 
     # ---- 복구
 
@@ -154,26 +172,27 @@ class StateDB:
 
         기존 행은 건드리지 않고 없는 것만 채운다. 반환값은 새로 채운 건수.
         """
-        d = Path(coolm_dir)
-        if not d.is_dir():
-            return 0
-        added = 0
-        for md in sorted(d.glob("*.md")):
-            meta = read_front_matter(md)
-            key = meta.get("message_key")
-            if key is None:
-                continue
-            cur = self._con.execute(
-                "INSERT OR IGNORE INTO imported "
-                "(message_key, content_hash, md_path, imported_at, attach_total, attach_ok) "
-                "VALUES (?,?,?,?,?,?)",
-                (key, meta.get("content_hash", ""), str(md),
-                 meta.get("imported_at", "") or _mtime(md), 0, 0))
-            added += cur.rowcount
-        self._con.commit()
-        if added:
-            log.info("인박스에서 이력 %d건을 복구했습니다: %s", added, d)
-        return added
+        with self._lock:
+            d = Path(coolm_dir)
+            if not d.is_dir():
+                return 0
+            added = 0
+            for md in sorted(d.glob("*.md")):
+                meta = read_front_matter(md)
+                key = meta.get("message_key")
+                if key is None:
+                    continue
+                cur = self._con.execute(
+                    "INSERT OR IGNORE INTO imported "
+                    "(message_key, content_hash, md_path, imported_at, attach_total, attach_ok) "
+                    "VALUES (?,?,?,?,?,?)",
+                    (key, meta.get("content_hash", ""), str(md),
+                     meta.get("imported_at", "") or _mtime(md), 0, 0))
+                added += cur.rowcount
+            self._con.commit()
+            if added:
+                log.info("인박스에서 이력 %d건을 복구했습니다: %s", added, d)
+            return added
 
 
 # ---------------------------------------------------------------- 도구

@@ -15,7 +15,7 @@ from datetime import datetime
 FRONT = "---"
 # YAML 평문 스칼라로 두면 위험하거나, 우리 쪽 단순 파서(state.read_front_matter)가
 # 헷갈릴 수 있는 값. 따옴표·역슬래시는 YAML 상 평문에 둬도 되지만 감싸는 편이 안전하다.
-_NEEDS_QUOTE = re.compile(r'^\s|\s$|^$|^[-?:,\[\]{}#&*!|>%@`]|:\s|\s#|[\n\r\t"\\]')
+_NEEDS_QUOTE = re.compile(r'^\s|\s$|^$|^[-?:,\[\]{}#&*!|>%@`]|:(\s|$)|\s#|[\n\r\t"\\]')
 
 
 @dataclass

@@ -90,3 +90,79 @@ def test_종료하면_잠금_서버를_닫는다(ctl):
     ctl.instance_server = FakeServer()
     ctl.quit()
     assert closed == [1]
+
+
+# ---------------------------------------------------------------- 폴링 연동 (#14)
+
+def test_지금_확인은_워처를_부른다(ctl, monkeypatch):
+    called = []
+    monkeypatch.setattr(ctl.watcher, "poll_now", lambda: called.append(1))
+    ctl.check_now()
+    assert called == [1]
+
+
+def test_설정_전에_지금_확인하면_설정으로_안내한다(qapp, monkeypatch):
+    from src.config import Config
+    ctl = AppController(qapp, config=Config())
+    called = []
+    monkeypatch.setattr(ctl.watcher, "poll_now", lambda: called.append(1))
+    ctl.check_now()
+    assert called == []
+    ctl.tray.hide()
+
+
+def test_일시정지하면_워처도_멈춘다(ctl):
+    ctl.set_paused(True)
+    assert not ctl.watcher.active
+    ctl.set_paused(False)
+    assert ctl.watcher.active
+
+
+def test_폴링_시작하면_배달중_아이콘(ctl):
+    ctl.on_poll_started()
+    assert ctl.tray.state is AppState.WORKING
+
+
+def test_일시정지_중에는_배달중으로_바뀌지_않는다(ctl):
+    ctl.set_paused(True)
+    ctl.on_poll_started()
+    assert ctl.tray.state is AppState.PAUSED
+
+
+def test_배달_결과를_알린다(ctl, monkeypatch):
+    from src.writer.importer import ImportResult, Summary, SAVED
+
+    notices = []
+    monkeypatch.setattr(ctl.tray, "notify", lambda t, m, error=False: notices.append((m, error)))
+    s = Summary([ImportResult(1, SAVED), ImportResult(2, SAVED)])
+    ctl.on_poll_finished(s)
+    assert notices == [("쪽지 2건을 인박스로 배달했어요.", False)]
+    assert ctl.tray.state is AppState.IDLE
+
+
+def test_알림을_끄면_조용하다(ctl, monkeypatch):
+    from src.writer.importer import ImportResult, Summary, SAVED
+
+    ctl.config.schedule.notify = False
+    notices = []
+    monkeypatch.setattr(ctl.tray, "notify", lambda t, m, error=False: notices.append(m))
+    ctl.on_poll_finished(Summary([ImportResult(1, SAVED)]))
+    assert notices == []
+
+
+def test_가져온_쪽지가_없으면_알리지_않는다(ctl, monkeypatch):
+    from src.writer.importer import Summary
+
+    notices = []
+    monkeypatch.setattr(ctl.tray, "notify", lambda t, m, error=False: notices.append(m))
+    ctl.on_poll_finished(Summary())
+    assert notices == []
+
+
+def test_오류는_알림을_꺼도_알린다(ctl, monkeypatch):
+    ctl.config.schedule.notify = False
+    notices = []
+    monkeypatch.setattr(ctl.tray, "notify", lambda t, m, error=False: notices.append((m, error)))
+    ctl.on_poll_error("쿨메신저 쪽지 폴더가 없습니다: C:\\없음")
+    assert notices[0][1] is True
+    assert ctl.tray.state is AppState.ERROR

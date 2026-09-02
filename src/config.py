@@ -43,6 +43,11 @@ def config_path() -> Path:
     return config_dir() / "config.json"
 
 
+def state_path() -> Path:
+    """중복 방지 이력 DB."""
+    return config_dir() / "state.sqlite3"
+
+
 # ---------------------------------------------------------------- 설정 모델
 
 @dataclass
