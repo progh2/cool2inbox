@@ -48,6 +48,7 @@ class AppController(QObject):
         self._progress = None
         self._connect()
         self.refresh_state()
+        self.absorb_archives()
         self.watcher.apply_config()
 
     # ---- 배선
@@ -128,6 +129,22 @@ class AppController(QObject):
                 return r.latest_key()
             keys = r.all_keys()                      # RECENT — 최근 N건을 남겨 둔다
             return keys[-(recent_count + 1)] if len(keys) > recent_count else 0
+
+    def absorb_archives(self) -> None:
+        """등록된 아카이브 폴더의 쪽지를 이력에 반영한다 (FR-4.6).
+
+        옮겨둔 파일을 '이미 가져온 것' 으로 인식시켜, 새로 다시 만들지 않게 한다.
+        기존 이력은 덮지 않으므로 여러 번 불러도 안전하다.
+        """
+        dirs = self.config.inbox.archive_dirs
+        if not dirs:
+            return
+        try:
+            n = self.state.rebuild_from_archives(dirs)
+            if n:
+                log.info("아카이브에서 이력 %d건을 반영했습니다.", n)
+        except OSError as e:
+            log.warning("아카이브를 읽지 못했습니다: %s", e)
 
     def refresh_state(self) -> None:
         """설정과 일시정지 여부에 맞춰 아이콘·메뉴를 정한다. 설정 미완료가 최우선이다."""
@@ -233,8 +250,10 @@ class AppController(QObject):
 
     def _rebuild_history(self, dlg: SettingsDialog) -> None:
         n = self.state.rebuild_from_inbox(self.config.inbox.coolm_dir())
+        n += self.state.rebuild_from_inbox(self.config.inbox.coolm_dir(sent=True), kind="send")
+        n += self.state.rebuild_from_archives(self.config.inbox.archive_dirs)
         dlg.set_stats(self.state.stats())
-        self.tray.notify("cool2inbox", f"인박스에서 이력 {n}건을 되살렸습니다."
+        self.tray.notify("cool2inbox", f"인박스와 아카이브에서 이력 {n}건을 되살렸습니다."
                          if n else "되살릴 이력이 없습니다.")
 
     def _clear_history(self, dlg: SettingsDialog) -> None:
@@ -316,6 +335,7 @@ class AppController(QObject):
         except autostart.AutostartError as e:
             log.warning("자동 실행 설정 실패: %s", e)
             self.tray.notify("cool2inbox", str(e), error=True)
+        self.absorb_archives()
         self.watcher.apply_config(config)
         self.refresh_state()
         log.info("설정을 반영했습니다.")

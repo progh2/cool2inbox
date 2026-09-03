@@ -201,32 +201,49 @@ class StateDB:
 
     # ---- 복구
 
-    def rebuild_from_inbox(self, coolm_dir: str | Path, kind: str = "recv") -> int:
-        """인박스의 md 머리말을 읽어 이력을 되살린다 (FR-4.3).
+    def rebuild_from_inbox(self, coolm_dir: str | Path, kind: str = "recv",
+                           recursive: bool = False) -> int:
+        """한 폴더의 md 머리말을 읽어 이력을 되살린다 (FR-4.3). 기존 행은 건드리지 않는다.
 
-        기존 행은 건드리지 않고 없는 것만 채운다. 반환값은 새로 채운 건수.
+        recursive=False 면 직속 md 만 본다(받은쪽지 폴더가 보낸쪽지 하위 폴더를 삼키지 않게).
+        recursive=True 면 하위까지 훑고 각 md 의 direction 머리말로 kind 를 정한다(아카이브용).
         """
+        d = Path(coolm_dir)
+        if not d.is_dir():
+            return 0
+        files = sorted(d.rglob("*.md") if recursive else d.glob("*.md"))
         with self._lock:
-            d = Path(coolm_dir)
-            if not d.is_dir():
-                return 0
             added = 0
-            for md in sorted(d.glob("*.md")):
+            for md in files:
                 meta = read_front_matter(md)
                 key = meta.get("message_key")
                 if key is None:
                     continue
+                row_kind = kind
+                if recursive:                    # 아카이브: 파일이 스스로 방향을 말한다
+                    row_kind = "send" if meta.get("direction") == "sent" else "recv"
                 cur = self._con.execute(
                     "INSERT OR IGNORE INTO imported "
-                    "(message_key, content_hash, md_path, imported_at, attach_total, attach_ok) "
-                    "VALUES (?,?,?,?,?,?)",
-                    (key, meta.get("content_hash", ""), str(md),
+                    "(kind, message_key, content_hash, md_path, imported_at, attach_total, attach_ok) "
+                    "VALUES (?,?,?,?,?,?,?)",
+                    (row_kind, key, meta.get("content_hash", ""), str(md),
                      meta.get("imported_at", "") or _mtime(md), 0, 0))
                 added += cur.rowcount
             self._con.commit()
             if added:
-                log.info("인박스에서 이력 %d건을 복구했습니다: %s", added, d)
+                log.info("이력 %d건을 복구했습니다: %s", added, d)
             return added
+
+    def rebuild_from_archives(self, archive_dirs) -> int:
+        """아카이브 폴더들을 재귀로 훑어 이력을 채운다. 반환: 새로 채운 건수 (FR-4.6).
+
+        아카이브의 쪽지는 '이미 처리됨' 으로만 기록한다(첨부 미완료로 남기지 않는다).
+        """
+        total = 0
+        for d in archive_dirs or []:
+            if str(d).strip():
+                total += self.rebuild_from_inbox(d, recursive=True)
+        return total
 
 
 # ---------------------------------------------------------------- 도구
@@ -269,7 +286,7 @@ def read_front_matter(md_path: str | Path) -> dict:
                         out["message_key"] = int(v)
                     except ValueError:
                         pass
-                elif k in ("content_hash", "imported_at"):
+                elif k in ("content_hash", "imported_at", "direction"):
                     out[k] = v
     except OSError as e:
         log.warning("md 머리말을 읽지 못했습니다 (%s): %s", md_path, e)

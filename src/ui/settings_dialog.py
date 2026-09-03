@@ -13,8 +13,8 @@ from datetime import datetime
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QGroupBox,
-                               QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
-                               QSpinBox, QTabWidget, QVBoxLayout, QWidget)
+                               QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit,
+                               QPushButton, QSpinBox, QTabWidget, QVBoxLayout, QWidget)
 
 from src import __version__
 from src.config import POLL_MAX, POLL_MIN, Config
@@ -96,6 +96,13 @@ class SettingsDialog(QDialog):
 
         self.lbl_paths = StatusLabel()
         form.addRow("저장 위치", self.lbl_paths)
+
+        self.edit_archives = QPlainTextEdit()
+        self.edit_archives.setPlaceholderText(
+            "이전에 내보낸 쪽지를 다른 곳으로 옮겼다면 그 폴더를 한 줄에 하나씩 적으세요.\n"
+            "여기 있는 쪽지는 '이미 가져온 것'으로 보고 다시 만들지 않습니다. 하위 폴더까지 살핍니다.")
+        self.edit_archives.setFixedHeight(72)
+        form.addRow("아카이브 폴더", self.edit_archives)
 
         warn = QLabel("⚠️ 저장되는 파일은 드롭박스로 동기화됩니다. 업무 쪽지의 외부 클라우드 "
                       "동기화가 조직 규정에 어긋나지 않는지 확인해 주세요.")
@@ -216,6 +223,7 @@ class SettingsDialog(QDialog):
         self.pick_inbox.set_value(c.inbox.root_dir)
         self.edit_coolm_name.setText(c.inbox.coolm_folder_name)
         self.edit_attach_name.setText(c.inbox.attach_folder_name)
+        self.edit_archives.setPlainText("\n".join(c.inbox.archive_dirs))
 
         self.spin_minutes.setValue(c.schedule.poll_minutes)
         self.spin_max.setValue(c.schedule.max_per_poll)
@@ -244,6 +252,7 @@ class SettingsDialog(QDialog):
         c.inbox.root_dir = self.pick_inbox.value()
         c.inbox.coolm_folder_name = self.edit_coolm_name.text().strip()
         c.inbox.attach_folder_name = self.edit_attach_name.text().strip()
+        c.inbox.archive_dirs = [ln.strip() for ln in self.edit_archives.toPlainText().splitlines() if ln.strip()]
         c.inbox.max_attach_mb = self.spin_attach_mb.value()
         c.schedule.poll_minutes = self.spin_minutes.value()
         c.schedule.max_per_poll = self.spin_max.value()

@@ -39,7 +39,13 @@ def launch_command() -> list[str]:
                     return ["/usr/bin/open", "-a", str(p)]
         return [str(exe)]
     root = Path(__file__).resolve().parent.parent
-    return [sys.executable, str(root / "main.py")]
+    exe = sys.executable
+    if platform.system() == "Windows":          # pragma: no cover - Windows 전용
+        # python.exe 는 콘솔 창을 띄운다. 같은 폴더의 pythonw.exe 가 있으면 그걸 쓴다.
+        w = Path(exe).with_name("pythonw.exe")
+        if w.exists():
+            exe = str(w)
+    return [exe, str(root / "main.py")]
 
 
 def _quoted(cmd: list[str]) -> str:

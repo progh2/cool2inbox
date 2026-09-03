@@ -8,10 +8,31 @@ from __future__ import annotations
 import sys
 
 
+def _detach_console() -> None:
+    """얼린 앱이 콘솔에 붙어 실행됐으면 그 콘솔을 떼어낸다 (검은 창 방지).
+
+    GUI 서브시스템으로 빌드해도, 콘솔을 가진 부모(터미널·일부 자동 실행·작업 스케줄러)가
+    띄우면 그 콘솔을 물려받아 창이 보인다. FreeConsole 로 분리하면 우리가 마지막 사용자일 때
+    창이 닫힌다. 콘솔이 없으면 아무 일도 하지 않는다.
+    """
+    if sys.platform != "win32" or not getattr(sys, "frozen", False):
+        return
+    try:
+        import ctypes
+
+        if ctypes.windll.kernel32.GetConsoleWindow():
+            ctypes.windll.kernel32.FreeConsole()
+    except Exception:
+        pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    _detach_console()
+
     from src.logging_setup import setup_logging
 
-    setup_logging()
+    # 얼린 앱은 콘솔이 없으므로 stderr 로그를 끈다 (회전 파일에는 계속 남는다).
+    setup_logging(to_stderr=not getattr(sys, "frozen", False))
 
     import logging
 

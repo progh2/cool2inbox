@@ -67,6 +67,7 @@ class InboxSettings:
     """드롭박스 인박스 출력 위치."""
 
     root_dir: str = ""                  # 예: D:\Dropbox\Inbox
+    archive_dirs: list[str] = field(default_factory=list)   # 이전에 내보낸 쪽지를 옮겨둔 폴더들
     coolm_folder_name: str = "쿨메신저"
     sent_folder_name: str = "보낸쪽지"
     attach_folder_name: str = "첨부파일"
@@ -164,6 +165,7 @@ class Config:
         c.attach_match_minutes = _clamp(c.attach_match_minutes, 0, 24 * 60, 30)
         i = self.inbox
         i.max_attach_mb = max(0, _int(i.max_attach_mb, 200))
+        i.archive_dirs = _clean_dirs(i.archive_dirs)
         i.coolm_folder_name = i.coolm_folder_name.strip() or "쿨메신저"
         i.sent_folder_name = i.sent_folder_name.strip() or "보낸쪽지"
         i.attach_folder_name = i.attach_folder_name.strip() or "첨부파일"
@@ -219,8 +221,23 @@ def _backup_broken(p: Path) -> None:
         log.warning("깨진 설정 파일을 백업하지 못했습니다: %s", e)
 
 
+def _clean_dirs(dirs: Any) -> list[str]:
+    """폴더 목록에서 공백·빈 값·중복(순서 유지)을 정리한다."""
+    if not isinstance(dirs, list):
+        return []
+    seen, out = set(), []
+    for d in dirs:
+        s = str(d).strip()
+        if s and s not in seen:
+            seen.add(s)
+            out.append(s)
+    return out
+
+
 def _coerce(value: Any, typ: Any, default: Any) -> Any:
     """JSON 값을 dataclass 필드 타입에 맞춘다. 못 맞추면 기본값."""
+    if isinstance(default, list):
+        return _clean_dirs(value) if isinstance(value, list) else list(default)
     if typ is bool:
         if isinstance(value, bool):
             return value

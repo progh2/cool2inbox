@@ -202,7 +202,9 @@ class Importer:
         """
         md_path = Path(row.md_path)
         if not md_path.exists():
-            return ImportResult(message.key, SKIPPED, "md 파일이 없습니다")
+            # 사용자가 md 를 아카이브 등으로 옮겼다 → 더 재시도하지 않게 완료로 표시한다.
+            self.state.update_attachments(message.key, row.attach_total, kind=message.kind)
+            return ImportResult(message.key, SKIPPED, "md 파일이 옮겨졌습니다 — 재시도 중단")
 
         links, ok = self._attachments(message)
         if ok <= row.attach_ok:
