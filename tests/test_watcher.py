@@ -96,10 +96,10 @@ def test_실패한_쪽지_앞에서_키가_멈춘다(setup, qapp, monkeypatch):
     w, c, state, _ = setup
     real = w.importer.writer.write_note
 
-    def fail_first(filename, text):
+    def fail_first(filename, text, **k):
         if "첫째" in filename:
             raise InboxError("일시적 실패")
-        return real(filename, text)
+        return real(filename, text, **k)
 
     monkeypatch.setattr(w.importer.writer, "write_note", fail_first)
     summary, _ = run_poll(qapp, w)

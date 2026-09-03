@@ -17,14 +17,14 @@ def writer(tmp_path):
 
 
 def test_경로_조립(writer, tmp_path):
-    assert writer.coolm_dir == tmp_path / "Inbox" / "쿨메신저"
-    assert writer.attach_dir == tmp_path / "Inbox" / "쿨메신저" / "첨부파일"
+    assert writer.coolm_dir() == tmp_path / "Inbox" / "쿨메신저"
+    assert writer.attach_dir() == tmp_path / "Inbox" / "쿨메신저" / "첨부파일"
 
 
 def test_폴더를_자동으로_만든다(writer):
     writer.ensure_dirs(attachments=True)
-    assert writer.coolm_dir.is_dir()
-    assert writer.attach_dir.is_dir()
+    assert writer.coolm_dir().is_dir()
+    assert writer.attach_dir().is_dir()
 
 
 def test_md_쓰기(writer):
@@ -47,7 +47,7 @@ def test_개행은_LF로_저장된다(writer):
 
 def test_임시_파일을_남기지_않는다(writer):
     writer.write_note("a.md", "x")
-    assert [p.name for p in writer.coolm_dir.iterdir()] == ["a.md"]
+    assert [p.name for p in writer.coolm_dir().iterdir()] == ["a.md"]
 
 
 def test_쓰기가_실패하면_임시_파일도_치운다(writer, monkeypatch):
@@ -55,7 +55,7 @@ def test_쓰기가_실패하면_임시_파일도_치운다(writer, monkeypatch):
     monkeypatch.setattr(os, "replace", lambda *a: (_ for _ in ()).throw(OSError(13, "권한 없음")))
     with pytest.raises(InboxError, match="권한이 없습니다"):
         writer.write_note("a.md", "x")
-    assert list(writer.coolm_dir.iterdir()) == []
+    assert list(writer.coolm_dir().iterdir()) == []
 
 
 def test_디스크가_가득_차면_사람이_읽을_안내(writer, monkeypatch):
@@ -70,7 +70,7 @@ def test_디스크가_가득_차면_사람이_읽을_안내(writer, monkeypatch)
 def test_첨부_복사(writer, tmp_path):
     src = tmp_path / "원본.hwp"
     src.write_bytes(b"\x00\x01" * 100)
-    dest = writer.attach_dir / "쪽지폴더"
+    dest = writer.attach_dir() / "쪽지폴더"
     p = writer.copy_attachment(src, dest, "원본.hwp")
     assert p.read_bytes() == src.read_bytes()
     assert p.parent == dest
@@ -80,7 +80,7 @@ def test_첨부_복사는_원본을_건드리지_않는다(writer, tmp_path):
     src = tmp_path / "원본.hwp"
     src.write_bytes(b"data")
     before = (src.stat().st_size, src.read_bytes())
-    writer.copy_attachment(src, writer.attach_dir / "x", "원본.hwp")
+    writer.copy_attachment(src, writer.attach_dir() / "x", "원본.hwp")
     assert (src.stat().st_size, src.read_bytes()) == before
     assert src.exists()
 
@@ -88,23 +88,23 @@ def test_첨부_복사는_원본을_건드리지_않는다(writer, tmp_path):
 def test_첨부_복사도_임시_파일을_남기지_않는다(writer, tmp_path):
     src = tmp_path / "a.bin"
     src.write_bytes(b"x")
-    dest = writer.attach_dir / "쪽지"
+    dest = writer.attach_dir() / "쪽지"
     writer.copy_attachment(src, dest, "a.bin")
     assert [p.name for p in dest.iterdir()] == ["a.bin"]
 
 
 def test_없는_원본을_복사하면_오류(writer, tmp_path):
     with pytest.raises(InboxError):
-        writer.copy_attachment(tmp_path / "없음.hwp", writer.attach_dir / "x", "없음.hwp")
+        writer.copy_attachment(tmp_path / "없음.hwp", writer.attach_dir() / "x", "없음.hwp")
 
 
 def test_남은_임시_파일_청소(writer):
     writer.ensure_dirs(attachments=True)
-    (writer.coolm_dir / f"죽다만것.md{TMP_SUFFIX}").write_text("x")
-    (writer.attach_dir / f"a.hwp{PART_SUFFIX}").write_text("x")
-    (writer.coolm_dir / "정상.md").write_text("x")
+    (writer.coolm_dir() / f"죽다만것.md{TMP_SUFFIX}").write_text("x")
+    (writer.attach_dir() / f"a.hwp{PART_SUFFIX}").write_text("x")
+    (writer.coolm_dir() / "정상.md").write_text("x")
     assert writer.cleanup_temp() == 2
-    assert (writer.coolm_dir / "정상.md").exists()
+    assert (writer.coolm_dir() / "정상.md").exists()
 
 
 def test_폴더를_못_만들면_안내(tmp_path):

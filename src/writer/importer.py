@@ -122,7 +122,7 @@ class Importer:
         key = message.key
         if message.is_empty:
             return ImportResult(key, SKIPPED, "내용이 없는 쪽지")
-        if self.state.seen(key, message.content_hash()):
+        if self.state.seen(key, message.content_hash(), kind=message.kind):
             return ImportResult(key, SKIPPED, "이미 가져온 쪽지")
 
         try:
@@ -140,18 +140,19 @@ class Importer:
                                 include_recipients=o.include_recipients,
                                 include_cc=o.include_cc,
                                 include_attachments=o.include_attachments)
-        self.writer.ensure_dirs(attachments=bool(message.attachments))
+        sent = message.is_sent
+        self.writer.ensure_dirs(attachments=bool(message.attachments), sent=sent)
 
-        filename = naming.note_filename(message, o.filename_format, base_dir=self.writer.coolm_dir)
+        filename = naming.note_filename(message, o.filename_format, base_dir=self.writer.coolm_dir(sent))
         if not naming.format_is_unique(o.filename_format):
-            filename = naming.unique_path(self.writer.coolm_dir, filename).name
+            filename = naming.unique_path(self.writer.coolm_dir(sent), filename).name
 
         links, ok = self._attachments(message)
         text = render(message, attachments=links, options=options, imported_at=now)
-        md_path = self.writer.write_note(filename, text)
+        md_path = self.writer.write_note(filename, text, sent=sent)
 
         self.state.record(message.key, message.content_hash(), md_path,
-                          attach_total=len(links), attach_ok=ok, md_sha=md_sha(text))
+                          attach_total=len(links), attach_ok=ok, md_sha=md_sha(text), kind=message.kind)
         log.info("쪽지 %s 저장: %s (첨부 %d/%d)", message.key, md_path.name, ok, len(links))
         return ImportResult(message.key, SAVED, md_path=md_path,
                             attach_total=len(links), attach_ok=ok)
@@ -163,7 +164,7 @@ class Importer:
 
         limit = self.config.inbox.max_attach_mb * 1024 * 1024
         sub = naming.attachment_dirname(message)
-        dest_dir = self.writer.attach_dir / sub
+        dest_dir = self.writer.attach_dir(message.is_sent) / sub
         rel_base = f"{self.config.inbox.attach_folder_name}/{sub}"
 
         links: list[AttachmentLink] = []
@@ -216,11 +217,11 @@ class Importer:
                                             include_attachments=o.include_attachments))
         untouched = row.md_sha and md_sha(md_path.read_text(encoding="utf-8")) == row.md_sha
         if untouched:
-            self.writer.write_note(md_path.name, text)
-            self.state.update_attachments(message.key, ok, md_sha(text))
+            self.writer.write_note(md_path.name, text, sent=message.is_sent)
+            self.state.update_attachments(message.key, ok, md_sha(text), kind=message.kind)
             log.info("쪽지 %s 첨부 %d개를 뒤늦게 찾아 md 를 갱신했습니다", message.key, ok - row.attach_ok)
         else:
-            self.state.update_attachments(message.key, ok)
+            self.state.update_attachments(message.key, ok, kind=message.kind)
             log.info("쪽지 %s 첨부 %d개를 복사했습니다 (md 는 손대지 않음 — 사용자가 편집함)",
                      message.key, ok - row.attach_ok)
         return ImportResult(message.key, SAVED, "" if untouched else "md 는 사용자 편집본이라 그대로 둠",

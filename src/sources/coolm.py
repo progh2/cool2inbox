@@ -172,8 +172,9 @@ def split_recent(body: str) -> tuple[str, str]:
 @dataclass
 class Message:
     key: int
-    received: datetime
-    sender: str = ""                       # 원문 '표시이름(로그인ID)'
+    received: datetime                     # 받은 쪽지는 수신 시각, 보낸 쪽지는 발신 시각
+    kind: str = "recv"                     # recv | send
+    sender: str = ""                       # 받은 쪽지: 보낸 사람 '표시이름(로그인ID)'. 보낸 쪽지: 비어 있음
     title: str = ""
     body: str = ""                         # 평문 MessageText
     sender_key: int | None = None
@@ -203,12 +204,30 @@ class Message:
         return WEEKDAYS[self.received.weekday()]
 
     @property
+    def is_sent(self) -> bool:
+        return self.kind == "send"
+
+    @property
+    def party(self) -> str:
+        """파일명·표시에 쓸 '상대방'. 받은 쪽지는 보낸 사람, 보낸 쪽지는 받는 사람 요약."""
+        if not self.is_sent:
+            return self.sender_name or self.sender
+        if not self.recipients:
+            return "받는사람"
+        first = self.recipients[0]
+        return f"{first} 외 {len(self.recipients) - 1}" if len(self.recipients) > 1 else first
+
+    @property
     def attachment_names(self) -> list[str]:
         return [a.name for a in self.attachments]
 
     def content_hash(self) -> str:
-        """udb 가 재생성돼 MessageKey 가 바뀌어도 같은 쪽지를 알아보기 위한 지문 (FR-4.2)."""
-        raw = "|".join([self.sender, self.received.strftime(DATE_FORMAT), self.title, self.body])
+        """udb 가 재생성돼 MessageKey 가 바뀌어도 같은 쪽지를 알아보기 위한 지문 (FR-4.2).
+
+        보낸 쪽지와 받은 쪽지가 우연히 같은 내용이어도 섞이지 않도록 kind 를 포함한다.
+        """
+        who = self.sender if not self.is_sent else "→" + "|".join(self.recipients)
+        raw = "|".join([self.kind, who, self.received.strftime(DATE_FORMAT), self.title, self.body])
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
     def split_body(self) -> tuple[str, str]:
@@ -327,6 +346,10 @@ def default_memo_dir() -> str:
 
 _SELECT = ("SELECT MessageKey, Sender, SenderKey, ReceiveDate, Title, MessageText, MessageBody, "
            "ReferenceList, CCList, FilePath, IsUnRead, MessageType FROM tbl_recv")
+# 보낸 쪽지: Sender→'', SenderKey 없음, ReceiveDate→SendDate, IsUnRead 없음(0), 수신자는 ReceiverKey
+_SEND_SELECT = ("SELECT MessageKey, '' AS Sender, '' AS SenderKey, SendDate AS ReceiveDate, Title, "
+                "MessageText, MessageBody, ReceiverKey AS ReferenceList, CCList, FilePath, "
+                "0 AS IsUnRead, MessageType FROM tbl_send")
 
 
 class CoolmReader:
@@ -383,6 +406,7 @@ class CoolmReader:
         # DeletedDate 는 확인한 버전에 없다. 있는 버전을 대비해 선택적으로 다룬다.
         self._has_deleted = "DeletedDate" in cols
         self._has_member = "tbl_member" in tables
+        self._has_sent = "tbl_send" in tables
 
     def _load_members(self) -> None:
         """멤버키 → 표시 이름. 조인 실패가 흔하므로 있는 것만 담는다."""
@@ -451,6 +475,49 @@ class CoolmReader:
             [int(k) for k in keys]).fetchall()
         return self._rows(rows)
 
+    # ---- 보낸 쪽지 (tbl_send)
+
+    @property
+    def has_sent(self) -> bool:
+        return self._has_sent
+
+    def latest_sent_key(self) -> int:
+        if not self._has_sent:
+            return 0
+        row = self._con.execute("SELECT MAX(MessageKey) FROM tbl_send").fetchone()
+        return int(row[0] or 0)
+
+    def all_sent_keys(self) -> list[int]:
+        if not self._has_sent:
+            return []
+        return [int(r[0]) for r in self._con.execute(
+            "SELECT MessageKey FROM tbl_send ORDER BY MessageKey")]
+
+    def sent_after(self, key: int, limit: int = 50) -> list[Message]:
+        if not self._has_sent:
+            return []
+        rows = self._con.execute(
+            f"{_SEND_SELECT} WHERE MessageKey > ? ORDER BY MessageKey ASC LIMIT ?",
+            (int(key), int(limit))).fetchall()
+        return self._rows(rows, kind="send")
+
+    def sent_page(self, offset: int = 0, limit: int = 200) -> list[Message]:
+        if not self._has_sent:
+            return []
+        rows = self._con.execute(
+            f"{_SEND_SELECT} ORDER BY MessageKey ASC LIMIT ? OFFSET ?",
+            (int(limit), int(offset))).fetchall()
+        return self._rows(rows, kind="send")
+
+    def sent_by_keys(self, keys: list[int]) -> list[Message]:
+        if not self._has_sent or not keys:
+            return []
+        marks = ",".join("?" * len(keys))
+        rows = self._con.execute(
+            f"{_SEND_SELECT} WHERE MessageKey IN ({marks}) ORDER BY MessageKey ASC",
+            [int(k) for k in keys]).fetchall()
+        return self._rows(rows, kind="send")
+
     def summary(self) -> str:
         """'연결 테스트' 버튼에 보여줄 한 줄 (FR-6.2)."""
         n = self.count()
@@ -464,15 +531,15 @@ class CoolmReader:
 
     # ---- 행 → 모델
 
-    def _rows(self, rows) -> list[Message]:
+    def _rows(self, rows, kind: str = "recv") -> list[Message]:
         out = []
         for r in rows:
-            m = self._to_message(r)
+            m = self._to_message(r, kind)
             if m is not None:
                 out.append(m)
         return out
 
-    def _to_message(self, r) -> Message | None:
+    def _to_message(self, r, kind: str = "recv") -> Message | None:
         try:
             received = parse_receive_date(r["ReceiveDate"])
         except (ValueError, TypeError):
@@ -484,6 +551,7 @@ class CoolmReader:
         return Message(
             key=int(r["MessageKey"]),
             received=received,
+            kind=kind,
             sender=r["Sender"] or "",
             title=r["Title"] or "",
             body=r["MessageText"] or "",

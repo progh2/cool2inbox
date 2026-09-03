@@ -155,6 +155,9 @@ class SettingsDialog(QDialog):
         for c in (self.chk_recipients, self.chk_cc, self.chk_attachments, self.chk_split):
             v.addWidget(c)
         form.addRow(box)
+
+        self.chk_sent = QCheckBox("내가 보낸 쪽지도 가져오기 (보낸쪽지 폴더에 따로 저장)")
+        form.addRow("보낸 쪽지", self.chk_sent)
         return w
 
     def _import_tab(self) -> QWidget:
@@ -226,6 +229,7 @@ class SettingsDialog(QDialog):
         self.chk_cc.setChecked(c.output.include_cc)
         self.chk_attachments.setChecked(c.output.include_attachments)
         self.chk_split.setChecked(c.output.split_quoted)
+        self.chk_sent.setChecked(c.coolm.include_sent)
 
         self._update_path_preview()
         self._update_name_preview()
@@ -250,6 +254,7 @@ class SettingsDialog(QDialog):
         c.output.include_cc = self.chk_cc.isChecked()
         c.output.include_attachments = self.chk_attachments.isChecked()
         c.output.split_quoted = self.chk_split.isChecked()
+        c.coolm.include_sent = self.chk_sent.isChecked()
         c.normalize()
         return c
 

@@ -53,10 +53,12 @@ def title_for(message) -> str:
 
 
 def _tokens(message) -> dict[str, str]:
+    # {sender} 는 '상대방' — 받은 쪽지는 보낸 사람, 보낸 쪽지는 받는 사람. Message.party 가 정한다.
+    party = getattr(message, "party", None) or message.sender_name or message.sender
     return {
         "date": f"{message.received:%Y-%m-%d}",
         "time": f"{message.received:%H%M}",
-        "sender": sanitize(message.sender_name or message.sender, fallback="보낸이없음"),
+        "sender": sanitize(party, fallback="상대방없음"),
         "title": sanitize(title_for(message), fallback=NO_TITLE),
         "key": str(message.key),
     }

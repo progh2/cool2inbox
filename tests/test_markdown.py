@@ -46,7 +46,7 @@ def test_기본_머리말():
     assert h["sender"] == "홍길동"
     assert h["sender_login"] == "hong"
     assert h["received"] == "2026-09-02 17:04:52"
-    assert h["received_weekday"] == "수"
+    assert h["weekday"] == "수"
     assert h["imported_at"] == "2026-09-02 17:10:03"
     assert len(h["content_hash"]) == 64
 
@@ -206,3 +206,21 @@ def test_콜론으로_끝나는_제목도_따옴표로():
 def test_콜론_뒤에_글자가_붙으면_평문으로_둔다():
     """YAML 은 ': ' 와 줄 끝 ':' 만 문제 삼는다."""
     assert yaml_scalar("07:30 회의") == "07:30 회의"
+
+
+# ---------------------------------------------------------------- 보낸 쪽지 (#25)
+
+def test_받은_쪽지는_direction_received():
+    assert head(render(msg()))["direction"] == "received"
+
+
+def test_보낸_쪽지_머리말():
+    from src.sources.coolm import Message
+    s = Message(key=509, received=WHEN, kind="send", title="자료 보냅니다",
+                body="확인 바랍니다", recipients=["김철수", "이영희"])
+    h = head(render(s))
+    assert h["direction"] == "sent"
+    assert h["sent_at"] == "2026-09-02 17:04:52"
+    assert "received" not in h              # 보낸 쪽지엔 received 대신 sent_at
+    assert "sender" not in h                # 보낸 사람은 나 자신이라 생략
+    assert h["recipients[]"] == ["김철수", "이영희"]

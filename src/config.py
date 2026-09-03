@@ -56,7 +56,9 @@ class CoolmSettings:
 
     memo_dir: str = ""                  # %LOCALAPPDATA%\CoolMessenger\Memo
     recv_file_dir: str = ""             # %USERPROFILE%\Documents\CoolMessenger Files\Received Files
-    last_message_key: int = 0           # 여기까지 처리했다 (MessageKey)
+    last_message_key: int = 0           # 받은 쪽지를 여기까지 처리했다 (MessageKey)
+    last_sent_key: int = 0              # 보낸 쪽지를 여기까지 처리했다
+    include_sent: bool = False          # 보낸 쪽지도 가져온다
     attach_match_minutes: int = 30      # 첨부 시각 매칭 허용 오차 (FR-2.4 2순위)
 
 
@@ -66,16 +68,18 @@ class InboxSettings:
 
     root_dir: str = ""                  # 예: D:\Dropbox\Inbox
     coolm_folder_name: str = "쿨메신저"
+    sent_folder_name: str = "보낸쪽지"
     attach_folder_name: str = "첨부파일"
     max_attach_mb: int = 200            # 0 = 무제한 (FR-2.8)
 
-    def coolm_dir(self) -> Path:
-        """쪽지 md 가 쌓이는 폴더."""
-        return Path(self.root_dir) / self.coolm_folder_name
+    def coolm_dir(self, sent: bool = False) -> Path:
+        """쪽지 md 가 쌓이는 폴더. 보낸 쪽지는 하위의 보낸쪽지 폴더로 분리한다 (D12)."""
+        base = Path(self.root_dir) / self.coolm_folder_name
+        return base / self.sent_folder_name if sent else base
 
-    def attach_dir(self) -> Path:
+    def attach_dir(self, sent: bool = False) -> Path:
         """첨부파일 폴더 (쪽지별 하위 폴더의 부모)."""
-        return self.coolm_dir() / self.attach_folder_name
+        return self.coolm_dir(sent) / self.attach_folder_name
 
 
 @dataclass
@@ -161,6 +165,7 @@ class Config:
         i = self.inbox
         i.max_attach_mb = max(0, _int(i.max_attach_mb, 200))
         i.coolm_folder_name = i.coolm_folder_name.strip() or "쿨메신저"
+        i.sent_folder_name = i.sent_folder_name.strip() or "보낸쪽지"
         i.attach_folder_name = i.attach_folder_name.strip() or "첨부파일"
         o = self.output
         o.filename_format = o.filename_format.strip() or DEFAULT_FILENAME_FORMAT

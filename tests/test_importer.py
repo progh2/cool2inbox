@@ -70,7 +70,7 @@ def test_내용이_없으면_건너뛴다(imp):
 def test_같은_쪽지를_열_번_넣어도_파일은_하나(imp):
     for _ in range(10):
         imp.import_one(msg())
-    assert len(list(imp.writer.coolm_dir.glob("*.md"))) == 1
+    assert len(list(imp.writer.coolm_dir().glob("*.md"))) == 1
     assert imp.state.stats()["notes"] == 1
 
 
@@ -93,7 +93,7 @@ def test_사용자가_md를_지워도_다시_만들지_않는다(imp):
 
 def test_저장에_실패하면_이력에_남지_않는다(imp, monkeypatch):
     monkeypatch.setattr(imp.writer, "write_note",
-                        lambda *a: (_ for _ in ()).throw(InboxError("디스크 공간이 부족합니다.")))
+                        lambda *a, **k: (_ for _ in ()).throw(InboxError("디스크 공간이 부족합니다.")))
     r = imp.import_one(msg())
     assert r.status == FAILED
     assert "디스크" in r.reason
@@ -104,11 +104,11 @@ def test_한_건이_실패해도_나머지는_계속(imp, monkeypatch):
     calls = []
     real = imp.writer.write_note
 
-    def flaky(filename, text):
+    def flaky(filename, text, **k):
         calls.append(filename)
         if len(calls) == 2:
             raise InboxError("일시적 실패")
-        return real(filename, text)
+        return real(filename, text, **k)
 
     monkeypatch.setattr(imp.writer, "write_note", flaky)
     s = imp.import_many(msgs(1, 2, 3))
@@ -123,7 +123,7 @@ def test_첨부_복사(tmp_path, imp):
     imp.finder = FakeFinder({"자료.hwp": src})
     r = imp.import_one(msg(attachments=[Attachment("자료.hwp", 500)]))
     assert (r.attach_total, r.attach_ok) == (1, 1)
-    copied = imp.writer.attach_dir / "2026-09-02_1704_홍길동_#1234" / "자료.hwp"
+    copied = imp.writer.attach_dir() / "2026-09-02_1704_홍길동_#1234" / "자료.hwp"
     assert copied.read_bytes() == b"x" * 500
     assert "첨부파일/2026-09-02_1704_홍길동_#1234/자료.hwp" in r.md_path.read_text(encoding="utf-8")
 
@@ -184,7 +184,7 @@ def test_같은_이름_첨부는_번호를_붙인다(tmp_path, imp):
 
     imp.finder = TwoFinder()
     r = imp.import_one(msg(attachments=[Attachment("같은이름.hwp", 3), Attachment("같은이름.hwp", 3)]))
-    names = sorted(p.name for p in (imp.writer.attach_dir / "2026-09-02_1704_홍길동_#1234").iterdir())
+    names = sorted(p.name for p in (imp.writer.attach_dir() / "2026-09-02_1704_홍길동_#1234").iterdir())
     assert names == ["같은이름 (2).hwp", "같은이름.hwp"]
     assert r.attach_ok == 2
 
@@ -224,7 +224,7 @@ def test_키가_없는_서식은_이름_충돌을_피한다(imp):
     imp.import_one(msg(key=1))
     imp.import_one(msg(key=2, body="다른 내용"))
     # 두 쪽지는 내용이 달라 각각 저장되고, 이름이 같으므로 (2) 가 붙는다
-    names = sorted(p.name for p in imp.writer.coolm_dir.glob("*.md"))
+    names = sorted(p.name for p in imp.writer.coolm_dir().glob("*.md"))
     assert names == ["2026-09-02_홍길동 (2).md", "2026-09-02_홍길동.md"]
 
 

@@ -127,7 +127,13 @@ class Watcher(QObject):
         with CoolmReader(self.memo_dir()) as r:
             messages = r.messages_after(c.last_message_key, limit=limit)
             summary = self.importer.import_many(messages) if messages else Summary()
-            self._advance(summary)
+            self._advance(summary, "recv")
+            if c.include_sent and r.has_sent:
+                sent = r.sent_after(c.last_sent_key, limit=limit)
+                if sent:
+                    ss = self.importer.import_many(sent)
+                    summary.results.extend(ss.results)
+                    self._advance(ss, "send")
             summary = self._retry_attachments(r, summary)
         return summary
 
@@ -141,27 +147,31 @@ class Watcher(QObject):
         pending = self.state.pending_attachments()[:RETRY_PER_POLL]
         if not pending:
             return summary
-        rows = {r.message_key: r for r in pending}
-        for m in reader.messages_by_keys(list(rows)):
-            try:
-                result = self.importer.retry_attachments(m, rows[m.key])
-            except OSError as e:
-                log.warning("첨부 재시도 실패 (쪽지 %s): %s", m.key, e)
-                continue
-            if result.status == SAVED:
-                summary.add(result)
+        recv_rows = {r.message_key: r for r in pending if r.kind == "recv"}
+        sent_rows = {r.message_key: r for r in pending if r.kind == "send"}
+        for msgs, rows in ((reader.messages_by_keys(list(recv_rows)), recv_rows),
+                           (reader.sent_by_keys(list(sent_rows)) if reader.has_sent else [], sent_rows)):
+            for m in msgs:
+                try:
+                    result = self.importer.retry_attachments(m, rows[m.key])
+                except OSError as e:
+                    log.warning("첨부 재시도 실패 (쪽지 %s): %s", m.key, e)
+                    continue
+                if result.status == SAVED:
+                    summary.add(result)
         return summary
 
-    def _advance(self, summary: Summary) -> None:
-        """마지막 처리 키를 옮긴다. **실패한 쪽지 앞에서 멈춘다.**"""
-        advance = self.config.coolm.last_message_key
+    def _advance(self, summary: Summary, kind: str = "recv") -> None:
+        """마지막 처리 키를 옮긴다. **실패한 쪽지 앞에서 멈춘다.** kind 별로 따로 관리한다."""
+        attr = "last_message_key" if kind == "recv" else "last_sent_key"
+        advance = getattr(self.config.coolm, attr)
         for r in summary.results:
             if r.status in (SAVED, SKIPPED):
                 advance = max(advance, r.message_key)
             else:
                 break
-        if advance != self.config.coolm.last_message_key:
-            self.config.coolm.last_message_key = advance
+        if advance != getattr(self.config.coolm, attr):
+            setattr(self.config.coolm, attr, advance)
             self._save_config()
 
     def _emit_error(self, message: str) -> None:

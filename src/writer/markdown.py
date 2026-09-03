@@ -68,15 +68,18 @@ def front_matter(message, *, attachments: list[AttachmentLink] | None = None,
     at = attachments if attachments is not None else [
         AttachmentLink(a.name, a.size) for a in message.attachments]
 
-    lines = [FRONT, _line("source", "coolmessenger"), _line("message_key", message.key)]
+    sent = getattr(message, "is_sent", False)
+    lines = [FRONT, _line("source", "coolmessenger"),
+             _line("direction", "sent" if sent else "received"),
+             _line("message_key", message.key)]
     if message.title.strip():
         lines.append(_line("title", message.title.strip()))
-    if message.sender.strip():
+    if not sent and message.sender.strip():
         lines.append(_line("sender", message.sender_name or message.sender))
         if message.sender_login:
             lines.append(_line("sender_login", message.sender_login))
-    lines.append(_line("received", f"{message.received:%Y-%m-%d %H:%M:%S}"))
-    lines.append(_line("received_weekday", message.weekday))
+    lines.append(_line("sent_at" if sent else "received", f"{message.received:%Y-%m-%d %H:%M:%S}"))
+    lines.append(_line("weekday", message.weekday))
 
     if o.include_recipients and message.recipients:
         lines += _list_block("recipients", message.recipients)

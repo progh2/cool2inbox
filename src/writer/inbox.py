@@ -44,29 +44,27 @@ class InboxWriter:
 
     # ---- 경로
 
-    @property
-    def coolm_dir(self) -> Path:
-        return self.settings.coolm_dir()
+    def coolm_dir(self, sent: bool = False) -> Path:
+        return self.settings.coolm_dir(sent)
 
-    @property
-    def attach_dir(self) -> Path:
-        return self.settings.attach_dir()
+    def attach_dir(self, sent: bool = False) -> Path:
+        return self.settings.attach_dir(sent)
 
-    def ensure_dirs(self, attachments: bool = False) -> None:
+    def ensure_dirs(self, attachments: bool = False, sent: bool = False) -> None:
         """필요한 폴더를 만든다 (FR-3.1)."""
         try:
-            self.coolm_dir.mkdir(parents=True, exist_ok=True)
+            self.coolm_dir(sent).mkdir(parents=True, exist_ok=True)
             if attachments:
-                self.attach_dir.mkdir(parents=True, exist_ok=True)
+                self.attach_dir(sent).mkdir(parents=True, exist_ok=True)
         except OSError as e:
-            raise _friendly(e, self.coolm_dir) from e
+            raise _friendly(e, self.coolm_dir(sent)) from e
 
     # ---- 쓰기
 
-    def write_note(self, filename: str, text: str) -> Path:
+    def write_note(self, filename: str, text: str, sent: bool = False) -> Path:
         """md 를 원자적으로 쓴다. 이미 있으면 덮어쓴다 (중복 판정은 Importer 가 먼저 한다)."""
-        self.ensure_dirs()
-        target = self.coolm_dir / filename
+        self.ensure_dirs(sent=sent)
+        target = self.coolm_dir(sent) / filename
         tmp = target.with_name(target.name + TMP_SUFFIX)
         try:
             tmp.write_text(text, encoding="utf-8", newline="\n")
@@ -97,7 +95,7 @@ class InboxWriter:
     def cleanup_temp(self) -> int:
         """중간에 죽어서 남은 임시 파일을 치운다. 반환값은 지운 개수."""
         n = 0
-        for d in (self.coolm_dir, self.attach_dir):
+        for d in (self.coolm_dir(), self.attach_dir(), self.coolm_dir(True), self.attach_dir(True)):
             if not d.is_dir():
                 continue
             for p in list(d.rglob(f"*{TMP_SUFFIX}")) + list(d.rglob(f"*{PART_SUFFIX}")):
